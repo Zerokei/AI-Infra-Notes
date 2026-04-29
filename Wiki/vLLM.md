@@ -230,7 +230,7 @@ Block Manager 的亮点在**跨请求复用**：
 这一机制在所有请求共享同一 system prompt（最典型的 chat 应用）时收益巨大：系统提示对应的 KV Cache 在显存中仅存一份，所有请求共享读取。
 
 > [!tip]+ Prefix Caching 的两种共享来源，底层是同一套 COW
-> Block Manager 只通过 `ref_count + COW`（见 [[PagedAttention#Copy-on-Write：统一的底层机制]]）处理所有共享，不区分来源。共享的来源有两种：
+> Block Manager 只通过 `ref_count + COW`（见 [[PagedAttention#Copy-on-Write 与前缀共享]]）处理所有共享，不区分来源。共享的来源有两种：
 >
 > - **请求内共享**：同一请求内部多条生成路径（parallel sampling / beam search）在分歧前共用 prompt block；
 > - **请求间共享**：跨不同请求匹配相同前缀的 block（本节讨论的哈希命中，由 `enable_prefix_caching=True` 开启）。
