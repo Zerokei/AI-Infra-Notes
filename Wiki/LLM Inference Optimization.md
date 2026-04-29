@@ -1,19 +1,22 @@
 ---
-date-created: 2026-04-08 09:20
-date-updated: 2026-04-08 16:25
-tags:
-  - 🤖
+aliases: [LLM 推理优化]
+created: 2026-04-08
+updated: 2026-04-29
 ---
 
 # LLM Inference Optimization
 
-## 前置知识
+LLM 推理优化是围绕自回归生成的算力、显存带宽、网络带宽三项瓶颈展开的工程实践。Decode 阶段几乎总是 memory bound，Prefill 阶段通常是 flops bound，二者性质迥异——优化手段大致分为三类：减小模型与缓存的字节数（[[KV Cache]] 复用、量化、GQA），减少前向传播次数（speculative decoding），以及在调度层让 Prefill 与 Decode 各取所需（PD 分离、continuous batching）。
 
-- [[Transformer#Decoder-Only 架构（LLM）]] — LLM 使用的模型结构
-- [[Transformer#Attention 机制]] — Self-Attention、Multi-Head Attention
-- [[KV Cache]] — 自回归推理的核心优化：缓存历史 token 的 K 和 V，避免重复计算
+## Background
 
-## 推理的开销模型
+### 前置知识
+
+- [[Transformer#Decoder-Only 架构（LLM）]] —— LLM 使用的模型结构
+- [[Transformer#Attention 机制]] —— Self-Attention、Multi-Head Attention
+- [[KV Cache]] —— 自回归推理的核心优化：缓存历史 token 的 K 和 V，避免重复计算
+
+## Mechanism
 
 ### 三项开销
 
@@ -62,7 +65,7 @@ $$t_{token} \approx \frac{2P}{N \times M}$$
 
 其中 $P$=参数量，$N$=GPU 数。如 52B 模型、4 × A100 下约 **17 ms/token**。
 
-> [!warning] 简化假设
+> [!warning] 公式忽略了 KV Cache 读取与 attention batching 限制
 > - 上述只考虑了读模型权重的带宽开销。实际每步还需要读 KV Cache，上下文很长时这部分开销会变得显著。
 > - Self-attention 无法像 FFN 那样高效 batching——每个请求的 K、V 不同，无法跨请求共享[^3]。
 
@@ -99,7 +102,7 @@ $$t_{forward} \approx \frac{L \cdot R^3}{C}$$
 
 将 GPU 分块和 batch 同时缩小 $k$ 倍，利用率降到 $1/k$，但速度提升 $k^2$ 倍。工程中接受 40% 利用率是常见做法。
 
-## 优化方法
+## Variants & Comparisons
 
 ### 减少 KV Cache 显存
 
@@ -110,7 +113,7 @@ $$t_{forward} \approx \frac{L \cdot R^3}{C}$$
 - **限制 $T$**：只缓存最近 $W$ 个 token（滑动窗口），显存上限固定为 $W$ 而非无限增长。
 - **减小 $B$**：减少并发请求数，线性缩减。
 
-### 量化（Quantization）
+### 量化
 
 模型参数位数越多越精确，但也越占空间[^4]：
 
@@ -133,19 +136,32 @@ $$s = \frac{127}{\alpha}, \quad x_q = \text{round}(s \cdot x)$$
 
 量化的时机也有两种：训练完成后再量化（**PTQ**，快但精度损失可能较大），或训练时就模拟量化影响（**QAT**，更准确但需要重新训练）。
 
-> [!info]- 进阶：常见的具体量化方法
+> [!info]- GPTQ / GGUF / BitNet 三种代表性量化方案
 > - **GPTQ**：4-bit PTQ，量化一个权重后把误差补偿到相邻权重，逐层处理
 > - **GGUF**：分块量化，支持 CPU offload，适合显存不足时部分层跑在 CPU 上
 > - **BitNet 1.58b**：权重只有 {-1, 0, 1} 三个值，矩阵乘法变为纯加减法
 
-### PD 分离
+### PD 分离与 Continuous Batching
 
 Prefill 是计算密集型（flops bound），Decode 是带宽受限型（memory bound）。将两者在架构和调度层面解耦，可以针对性地分配资源：
 
 - Prefill 阶段：分配更多算力，一次性并行处理整个 prompt 并构建 KV Cache
 - Decode 阶段：优化显存带宽利用，支持 continuous batching（新请求随时插入，不等当前 batch 全部结束）
 
-[^1]: [KV Cache in LLM Inference (by Ayoub Nainia)](https://pub.towardsai.net/kv-cache-in-llm-inference-7b904a2a6982)
-[^2]: [Transformer Inference Arithmetic (by kipply)](https://kipp.ly/p/transformer-inference-arithmetic)
-[^3]: [How Fast Can We Perform a Forward Pass? (by Jacob Steinhardt)](https://bounded-regret.ghost.io/how-fast-can-we-perform-a-forward-pass/)
-[^4]: [A Visual Guide to Quantization (by Maarten Grootendorst)](https://newsletter.maartengrootendorst.com/p/a-visual-guide-to-quantization)
+### Speculative Decoding
+
+用一个更小或更快的 draft 模型一次性提议多个 token，再让目标模型并行验证，把 decode 阶段的串行延迟压缩成单步开销[^5]。该方法不改动模型权重，可与量化、PD 分离等手段叠加，但效果取决于 acceptance rate 的调优。详见 [[Speculative Decoding]] (待建)。
+
+### Pruning & Distillation
+
+剪枝从结构上移除冗余的权重、层或 head，再通过蒸馏让小模型模仿教师模型的输出分布[^5]。这条路径永久降低参数量与显存占用，适合其他优化无法满足部署预算的场景，代价是流水线复杂度更高、激进剪枝可能出现精度悬崖。详见 [[Pruning]] (待建) 与 [[Distillation]] (待建)。
+
+## Trade-offs
+
+KV Cache 优化普遍是**显存换精度**：GQA、滑窗、低精度缓存都在压缩状态空间，长上下文场景下回答质量会出现可观的退化。Batching 与 PD 分离是**算力利用率换单请求延迟**：batch 越大吞吐越高，但首 token 延迟和尾延迟都被拖长。Speculative decoding 则是**解码并行换 acceptance rate**：draft 模型偏离 target 越远，验证拒绝越多，加速比迅速衰减回基线。剪枝与蒸馏属于一次性资本支出，模型变小后无法恢复，只在部署预算硬约束下才划算。
+
+[^1]: [[Sources/Clippings/KV Cache in LLM Inference]]
+[^2]: [Transformer Inference Arithmetic (kipply)](https://kipp.ly/p/transformer-inference-arithmetic)
+[^3]: [How Fast Can We Perform a Forward Pass? (Steinhardt)](https://bounded-regret.ghost.io/how-fast-can-we-perform-a-forward-pass/)
+[^4]: [A Visual Guide to Quantization (Grootendorst)](https://newsletter.maartengrootendorst.com/p/a-visual-guide-to-quantization)
+[^5]: [[Sources/Clippings/Top 5 AI Model Optimization Techniques for Faster, Smarter Inference]]

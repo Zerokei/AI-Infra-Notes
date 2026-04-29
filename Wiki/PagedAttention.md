@@ -371,7 +371,7 @@ PagedAttention 思想已成为主流推理引擎的标配：
 
 - **Continuous batching**：vLLM 在 PagedAttention 之上实现动态 batching，请求到达与结束可随时插入或移除，GPU 不空等；
 - **Prefix caching**：将前缀共享从请求内扩展到请求间，SGLang 的 **RadixAttention** 是典型代表；
-- **PD 分离**（见 [[LLM Inference Optimization#PD 分离]]）：prefill 与 decode 的特性差异催生架构级解耦；
+- **PD 分离**（见 [[LLM Inference Optimization#PD 分离与 Continuous Batching]]）：prefill 与 decode 的特性差异催生架构级解耦；
 - **KV Cache 分层**：NVIDIA Dynamo、NVFP4 KV Cache 等将热数据留在显存、冷数据下沉到 CPU 或远端存储。
 
 [^1]: [Paged Attention from First Principles (by Hamza El Shafie)](https://hamzaelshafie.bearblog.dev/paged-attention-from-first-principles-a-view-inside-vllm/)
