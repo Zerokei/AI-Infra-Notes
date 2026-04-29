@@ -52,6 +52,12 @@ updated: 2026-04-29
 	- [Inside Nano-vLLM (Part 2) (by neutree.ai)](https://neutree.ai/blog/nano-vllm-part-2)
 	- [Fast and Expressive LLM Inference with RadixAttention and SGLang (by LMSYS)](https://lmsys.org/blog/2024-01-17-sglang/)
 
+## 待建 atomic 页（已被其他页面引用）
+
+- [[Speculative Decoding]] —— 引用方：[[LLM Inference Optimization]]（Variants & Comparisons → Speculative Decoding）
+- [[Pruning]] —— 引用方：[[LLM Inference Optimization]]（Variants & Comparisons → Pruning & Distillation）
+- [[Distillation]] —— 引用方：[[LLM Inference Optimization]]（Variants & Comparisons → Pruning & Distillation）
+
 ## WIP 页
 
 （迁移阶段会列入第一遍改写中尚未完工的页）
