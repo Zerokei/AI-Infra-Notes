@@ -69,4 +69,6 @@ updated: 2026-05-06
 
 ## WIP 页
 
-（迁移阶段会列入第一遍改写中尚未完工的页）
+- [[Wiki/VLM Architecture]] —— stub，从 [[Multimodal Models]] 重构时分出；含 LLaVA 三段式 + cross-attention 注入变体。完工需补：高分辨率切片策略、SigLIP vs CLIP-ViT 对比、recent VLM（Qwen2.5-VL、Molmo）的变体
+- [[Wiki/UFM]] —— stub，从 [[Multimodal Models]] 重构时分出；含三范式 + AR/Diffusion/Hybrid 速览。完工需补：每种范式的代表模型详细对比表、Janus 系列展开、AR-Diffusion 混合的损失函数细节
+- [[Wiki/Multimodal Inference Considerations]] —— stub，从 [[Multimodal Models]] 重构时分出；VLM/T2I/UFM 三种 infra profile 速览。完工需补：具体 batching 策略示例、SGLang/vLLM 的 VLM 调度路径、步数压缩方法对比

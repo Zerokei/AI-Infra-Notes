@@ -6,132 +6,129 @@ updated: 2026-05-06
 
 # Multimodal Models
 
-多模态模型（multimodal models）指能同时处理两种以上 modality（文本、图像、音频、视频等）的模型[^1]。本页按时间梳理 2021 年以来的演进里程碑、描述标准 vision encoder + LLM 理解架构、再按 NJU + CAS Auto + PKU 综述的三大范式介绍**统一多模态基础模型 (UFM)**——既能理解又能生成的前沿方向[^11]。
+多模态模型（multimodal models）指能同时处理多种信息形式（**modality**——文本、图像、音频、视频）的模型。和纯文本 LLM 的根本差别是：要把"长得不一样"的输入（文本 token、图像 patch、音频频段）映射到同一个表示空间，模型才能"同时听懂"它们[^1]。
 
-## Background
+本页是多模态领域的**导航 + 概览页**——梳理子方向、列举主流商业化产品、给出 ML infra 视角的关键差异。**不深入任何具体技术**，深入内容请跳到对应 atomic 页。
 
-多模态的根本难点是不同 modality 的离散化方式不同——文本走 BPE/SentencePiece tokenizer，图像走 patch 切分，音频走 spectrogram 或 codec token——表示空间天然不一致[^1]。
+## 概念地图：多模态有哪些子方向
 
-演进脉络上，从 2021 年至今的关键里程碑：
+按"模型吃哪些 modality + 输出什么"，多模态家族分这几类：
+
+| 缩写 | 全称 | 输入 → 输出 | 代表 |
+|---|---|---|---|
+| **VLM** | Vision-Language Model | 图像 + 文本 → 文本 | [[LLaVA]]、Qwen-VL、[[Kimi-VL]] |
+| **ALM**（也叫 SLM） | Audio/Speech-Language Model | 音频 + 文本 → 文本 | Qwen-Audio、Audio Flamingo |
+| **Video-LLM** | Video Language Model | 视频 + 文本 → 文本 | Video-LLaMA、VideoLLaVA |
+| **VLA** | Vision-Language-Action | 图像 + 文本 → 动作 token | π0、GR00T、RT-2（机器人 / 具身） |
+| **Omni / Any-to-Any** | （无固定缩写） | 任意 modality → 任意 modality | [[GPT-4o]]、[[Qwen2.5-Omni]] |
+
+另外有一类**单向生成专家**——专做 X→Y 的生成，不以"理解"为主：T2I（文生图，如 Stable Diffusion / FLUX）、T2V（文生视频，如 Sora）、TTS（文本转语音，如 ElevenLabs）、I2I（图像编辑，如 [[Qwen-Image-Edit]]）。
+
+更高层有几个常见伞概念：
+
+- **MLLM**（Multimodal LLM）—— 学术综述最常用，泛指 ≥2 种 modality 的 LLM
+- **LMM**（Large Multimodal Model）—— OpenAI / Google 偏好的叫法，含义同 MLLM
+- **UFM**（Unified Multimodal Foundation Model）—— 更窄子集，特指**既能理解又能生成**的模型，详见 [[UFM]]
+
+> [!note] 本页主聚焦
+> 后续以 **VLM 主线 + UFM** 为主（也是当前商业化最深的两条线）。VLA 在"周边方向"节简提；ALM / Video-LLM / 单向 T2V / TTS 不在本页深入。
+
+## 演进里程碑（2021–2026）
 
 | 年-月 | 模型 | 突破 |
 |---|---|---|
-| 2021 | [[CLIP]] | dual-encoder + 4 亿对 image-text 对比预训练，首次大规模图文表示对齐[^2] |
-| 2023 | [[LLaVA]] | visual instruction tuning，预训练 vision encoder + projector + LLM，开源 VLM 民主化[^3] |
-| 2024-05 | [[Chameleon]] | 首个主流开源 from-scratch early-fusion 模型，所有 modality 同 token 流训练[^4] |
-| 2024-10 | [[GPT-4o]] | 首个产业级 omni 模型：text/audio/image/video 输入 → text/audio/image 输出[^7] |
-| 2025-03 | [[Qwen2.5-Omni]] | 开源 any-to-any，Thinker-Talker + TMRoPE 解决音视频时序对齐[^8] |
-| 2025-04 | [[Llama 4]] | 开源 native multimodal MoE，early fusion + 10M 上下文[^9] |
-| 2025-04 | [[Kimi-VL]] | 开源 MoE VLM（16B 总 / 2.8B active），MoonViT，Thinking 变体加 long CoT[^10] |
+| 2021 | [[CLIP]] | dual-encoder 对比预训练，首次大规模图文表示对齐[^2] |
+| 2023 | [[LLaVA]] | "vision encoder + connector + LLM" 三段式，开源易复制[^3] |
+| 2024-05 | [[Chameleon]] | 首个开源 from-scratch early-fusion 模型，一个网络包圆[^4] |
+| 2024-10 | [[GPT-4o]] | 首个产业级"全模态"，文本+音频+图像+视频 → 文本+音频+图像[^7] |
+| 2025-03 | [[Qwen2.5-Omni]] | 开源 any-to-any，Thinker-Talker + TMRoPE[^8] |
+| 2025-04 | [[Llama 4]] | 开源 native multimodal MoE[^9] |
+| 2025-04 | [[Kimi-VL]] | 开源 MoE VLM，Thinking 变体加 long CoT[^10] |
 
-## Mechanism: vision encoder + LLM（理解侧）
+三条主线：(1) **看懂图**（CLIP / LLaVA 路线，主流 VLM）→ 详见 [[VLM Architecture]]；(2) **看懂 + 能生成**（Chameleon / GPT-4o 路线，UFM）→ 详见 [[UFM]]；(3) **效率优化**（MoE、long context、原生分辨率），叠加在前两条主线上。
 
-LLaVA 之后开源 VLM 的标准架构是 "vision encoder + projector + LLM"[^1]：
+## 主流 VLM 是怎么工作的
 
-> 图像 → vision encoder → projector → 与文本 token 拼接 → LLM decoder → 文本
+90% 你日常用的多模态产品（GPT-4o、Gemini、豆包视觉、Qwen-VL）都基于 **vision encoder + connector + LLM** 三段式：图像被 [[ViT]] 切成 patch 编码成 embedding 序列 → connector（一层小 MLP）做维度对齐 → 与文本 token 拼接送入 LLM → 输出文本。
 
-每段的常见选型[^1]：
+→ 详细工作流（含 LLaVA 实例）+ visual instruction tuning + cross-attention 注入变体 见 [[VLM Architecture]]。
 
-- **Vision encoder**：通常是预训练的 [[ViT]]，把图像切成 patch（典型 16×16 像素），编码成 embedding 序列。流行选择是 CLIP 的视觉编码器或 SigLIP。
-- **Projector / connector / adapter**：linear 层或小 MLP，把 vision encoder 输出的 embedding 投到 LLM 的 embedding 维度。
-- **LLM**：复用预训练 LLM。训练时通常先冻结 LLM 只训 projector；instruction-tuning 阶段解冻。LLaVA 的关键贡献 **visual instruction tuning** 就是用 GPT-4 合成图文指令跟随数据让 LLM 学会"看图回答指令"[^3]。
+## 既能理解又能生成：UFM
 
-> [!note] 视觉 token 的接入位置有两种变体
-> 多数 VLM（LLaVA、Molmo、Qwen2-VL 等）把视觉 token 拼在文本 token 前作为输入序列。少数例外（Llama 3.2 11B/90B、Flamingo）把视觉 embedding 通过 cross-attention 注入 LLM 内部某些层——这样视觉信息不占 KV cache、LLM 主体可冻结作为 text-only drop-in，代价是 LLM 架构要改[^1]。
+普通 VLM 只能"看"，不能"画"。当一个模型同时具备"理解 + 生成"两种能力，就叫 UFM。代表：[[GPT-4o]]、[[Chameleon]]、[[Llama 4]]、[[Qwen-Image-Edit]]。
 
-## UFM: 统一多模态基础模型
+NJU + CAS Auto + PKU 综述按"理解和生成怎么连起来"分三种范式[^11]：
 
-上面的标准架构让模型能"看懂"图像（输出文本），但生成图像 / 音频 / 视频是另一个能力。当模型同时具备"理解 + 生成"两种能力时，称为**统一多模态基础模型 (UFM)**[^11]。NJU + CAS Auto + PKU 联合综述（参考 750+ paper）按"理解与生成模块的耦合程度"把 UFM 分三大范式[^11]：
+- **调用外部 API**：LLM 当指挥官调外部生成模型 API（早期方案，已淘汰）
+- **LLM + 外挂生成器**（模块化联合）：LLM 输出 prompt 或中间向量驱动独立扩散模型——[[Qwen-Image-Edit]] 是开源代表
+- **一个模型全包**（端到端统一）：单一架构内统一处理理解 + 生成（GPT-4o、Chameleon），主流前沿
 
-### 1. 外部服务集成
+→ 三种范式的详细机制（AR / Diffusion / AR-Diffusion 混合）+ 各派代表模型 + Diffusion text encoder 选型 见 [[UFM]]。
 
-LLM 作"指挥官"调用外部专家模型 API。代表：Visual ChatGPT、HuggingGPT、AudioGPT、SwitchGPT[^11]。
+## 图文商业化代表（infra 视角）
 
-实现简单、模块化便于扩展，但多次调用累积误差、依赖外部模型质量。综述定性为**早期权宜方案，在后续发展中逐渐淡化**[^11]。
+按"产品做什么"分三类，中外各举 3-4 个代表。表格列：模型 | 公司 | 部署 | 关键 infra 标签。详细架构 / 推理 pattern / 规模 / 延迟请跳每个产品的 atomic 页。
 
-### 2. 模块化联合
+### 视觉理解（VLM）
 
-LLM 作"理解引擎"+ 软连接到独立生成模块（通常是预训练扩散模型）。综述细分为两类[^11]：
+| 模型 | 公司 | 部署 | 标签 |
+|---|---|---|---|
+| [[GPT-4o]] | OpenAI | 闭源 API | native multimodal AR；语音 232-320 ms 端到端[^7] |
+| Claude 4 Vision | Anthropic | 闭源 API | 长文档 / 多图理解强 |
+| Gemini 2.5 | Google | 闭源 API | native multimodal；1M+ 上下文 |
+| Qwen2.5-VL | 阿里 | 开源 (3B / 7B / 32B / 72B) | 原生分辨率 |
+| [[Kimi-VL]] | Moonshot | 部分开源 | MoE (16B 总 / 2.8B 激活) + MoonViT 原生分辨率[^10] |
+| 豆包视觉 (Doubao-VL) | 字节 | 闭源 API (火山引擎) | 国内 API 价格 + 并发优势 |
 
-- **Prompt-mediated**：LLM 生成自然语言提示词驱动外部生成器。代表：Divter、TIGER、Mini-Gemini、ModaVerse、LLMBind、Spider。
-- **Representation-mediated**：LLM 输出中间表征（连续或离散）作为生成模块的条件。代表：GILL（首次特征映射对齐 LLM 语言空间与图像生成模型）、Emu 系列（统一自回归处理交错文本-图像）、SEED/LaVIT（专用视觉分词器）、DreamLLM（Dream Queries 轻量接口）、NExT-GPT/AnyGPT（任意模态间生成）、[[Qwen-Image-Edit]]（frozen Qwen2.5-VL 出语义 + VAE 出外观 → MMDiT diffusion 融合生成；专门做图像编辑）[^12]。
+### 图像生成（T2I, Text-to-Image）
 
-优点是能即插即用现成扩散模型（如 Stable Diffusion）、训练成本低。缺点：提示词中介受自然语言表达力限制（难以精确传递空间布局、动作序列等细粒度信息）；表征中介虽生成质量更高但需额外对齐机制，且生成能力仍受限于外部模块上限[^11]。
+| 模型 | 公司 | 部署 | 标签 |
+|---|---|---|---|
+| Midjourney v7 | Midjourney | 闭源订阅 (Discord / Web) | 美学质量标杆；无 API |
+| DALL-E 3 | OpenAI | 闭源 (集成 ChatGPT) | 强 prompt following |
+| FLUX.1 | Black Forest Labs | dev / schnell 开源；pro 闭源 | rectified flow + DiT；schnell 4 步出图 |
+| Stable Diffusion 3.5 | Stability AI | 开源可商用 | UNet → MMDiT 架构演进代表 |
+| Qwen-Image | 阿里 | 部分开源 | 20B MMDiT；[[Qwen-Image-Edit]] 基座[^12] |
+| 即梦 (Dreamina) | 字节 | 闭源 API + Web | 国内消费级 + 商品图场景 |
+| 可图 (Kolors) | 快手 | 闭源 API + Web | 与可灵视频同生态 |
 
-### 3. 端到端统一
+### 图像编辑
 
-单一模型架构内统一处理多模态输入输出。当前**最主流和最具挑战性**的方向[^11]，按建模方法细分：
+| 模型 | 公司 | 部署 | 标签 |
+|---|---|---|---|
+| Adobe Firefly Generative Fill | Adobe | 闭源 (集成 PS / Lightroom) | 自研 diffusion；训练数据无版权风险 |
+| Gemini Nano Banana (2.5) | Google | 闭源 (Gemini app) | UFM native 生图，多轮编辑流畅[^6] |
+| GPT-4o Image Generation | OpenAI | 闭源 (集成 ChatGPT) | UFM native AR 生图[^7] |
+| [[Qwen-Image-Edit]] | 阿里 | 开源 | 模块化联合 UFM：frozen Qwen2.5-VL + VAE → MMDiT[^12] |
 
-**自回归（AR）**——把不同模态编码为词元序列做 next-token prediction[^11]。**生成图像的具体路径**：vision tokenizer（VQ-VAE / VQ-GAN 类）把图像离散化为视觉 token（一张 256×256 图通常 1k+ token），加进 LLM 词表后由 LLM 自回归预测视觉 token 序列，最后 VQ decoder 还原像素。
+## Infra 视角的关键差异（速览）
 
-代表：
+不同子方向的推理 profile 完全不同，部署时需要分别考虑：
 
-- **早期融合**：[[Chameleon]]（early-fusion token-based + query-key 归一化提升训练稳定性）、MoMa（modality-aware MoE 提升计算效率）
-- **离散输入**：Emu3（统一分词联合建模文本/图像/视频，仅 next-token 即完成多任务）、LWM（RingAttention 扩展到 1M 上下文）
-- **混合输入**：Janus / Janus-Pro（双编码器，高层语义用于理解、低层细节用于生成，缓解任务冲突）
-- **分词器创新**：VILA-U（重建损失 + 对比损失整合）、TokLIP、DDT-LLaMA
-- **下一尺度预测 / 扩散头**：VARGPT、MMAR、LatentLM、UniFluid（轻量级扩散/流头避免 VQ 信息损失）
+- **VLM**：仍是 transformer prefill+decode，但视觉 token 显著放大 prefill（单图 500-4000 token，KV cache 翻倍）
+- **T2I**：固定 N 步去噪（典型 20-50 步），无 KV cache，compute-bound 而非 memory-bound，单请求延迟数秒到数十秒级
+- **UFM AR 生图**（GPT-4o image gen）：继承 LLM autoregressive 推理，但 1k+ 视觉 token 串行生成 → 单图延迟数十秒级
+- **UFM 模块化联合**（Qwen-Image-Edit）："VLM 推理 + diffusion 推理"两段 pipeline，部署比纯 diffusion 复杂
 
-[[GPT-4o]][^7]、[[Llama 4]][^9]、[[Qwen2.5-Omni]][^8] 都属此类——其中 Llama 4 在 early fusion 上加 MoE（Scout 17B active / 109B 总；Maverick 17B active / 400B 总），Qwen2.5-Omni 用 Thinker-Talker 双模块处理音频流。
+→ 详细差异 + batching / 步数压缩 / 调度策略 见 [[Multimodal Inference Considerations]]。
 
-> [!warning] 纯 AR 生图的固有限制
-> 综述明确点出四个问题[^11]：(1) **速度慢**——一张高分辨率图常 1k+ token 逐个生成；(2) **保真度受 VQ tokenizer 重建质量限制**；(3) **不符合图像内在 2D 结构**（强加 1D 因果序列）；(4) **误差累积**。这正是 AR-Diffusion 混合范式兴起的动机之一。
+## 周边方向
 
-**扩散（Diffusion）**——扩散模型扩展到统一建模[^11]。**关键 nuance**：纯 diffusion 模型自身**不"理解"文字**——文本理解外包给独立 text encoder，编码出的 embedding 在每步去噪时通过 cross-attention 作为条件输入 diffusion 主体。Text encoder 的选择决定语言理解上限：
+HF VLM 2025 综述梳理的几个 2024–2026 能力方向[^5]：
 
-| Text encoder | 理解能力 | 代表 |
-|---|---|---|
-| CLIP text encoder | 弱 | Stable Diffusion 1.x/2.x、FLUX 早期 |
-| T5 | 中 | Imagen、PixArt |
-| LLM / VLM | 强 | [[Qwen-Image-Edit]]（用 frozen Qwen2.5-VL[^12]）、Stable Diffusion 3 |
+- **Reasoning VLM**：long CoT + RL（[[Kimi-VL]] Thinking、QVQ-72B）
+- **Small VLM**：消费 GPU 可跑（SmolVLM、Gemma 3-4B、Qwen 2.5-VL-3B）
+- **MoE decoder**：VLM 的 LLM 部分换 MoE（[[Kimi-VL]]、[[Llama 4]]、DeepSeek-VL2）
+- **VLA**（Vision-Language-Action）：输出 action token 控制机器人（π0、GR00T N1）
+- **Multimodal RAG**：视觉 embedding 直接做检索（ColPali、ColQwen）
 
-按原理细分：
+## 延伸阅读
 
-- **连续扩散**：Versatile Diffusion（双向文本-图像生成）、UniDiffuser（统一边缘/条件/联合分布）、CoDi（任意模态间生成）、C3Net
-- **离散扩散**：UniD3（首次离散扩散统一建模）、D-DiT（双分支：图像连续 + 文本离散）、UniDisc（全离散，在生成与判别上超越 AR）
-- **矫正流**：OmniFlow（模块化设计，每个流可独立预训练）
-
-生成质量高、细节丰富，但推理速度慢、理解能力相对较弱。
-
-> [!note] Diffusion 自己学语言？
-> 综述提到扩散语言模型（如 LLaDA）的进展[^11]——如果成熟，未来可能出现 diffusion 既能理解又能生成的统一架构，不再依赖外部 text encoder。但目前还在早期。
-
-**自回归-扩散混合（AR-Diffusion Hybrid）**——单一架构同时学 AR + diffusion，兼顾两者优势[^11]。**动机**：AR 强在 sequential / discrete（文本），diffusion 强在 continuous / spatial（图像）；hybrid 让一个模型用各自擅长的方式处理对应模态，规避两者各自的短板。代表：
-
-- **连续扩散**：Transfusion（单 Transformer，AR 文本损失 + 图像扩散损失，双向注意力显著优于因果注意力）、MonoFormer（用预训练 LLM 初始化）
-- **离散扩散**：Show-o（next-token + masked-token 预测 + Omni-Attention）、DoraCycle、UniCTokens
-- **矫正流**：JanusFlow（基于 Janus 解耦编码器 + 矫正流）、BAGEL、Mogao
-- **架构优化**：LMFusion、BAGEL、Mogao 用 modality-aware MoE 缓解任务干扰；X-Fusion 把视觉专家注入冻结 LLM 无需大规模重训练
-
-综述认为混合建模**生成质量显著优于纯 AR，避免了模块化联合的信息传递瓶颈**[^11]。但噪声注入可能损害理解性能，参数共享带来训练冲突。
-
-**其他**——编码器-解码器（OFA、Unified-IO 系列）、状态空间模型（OmniMamba 基于 Mamba-2，避免 Transformer 二次复杂度）、图结构（GraphGPT-o，用 multimodal attribute graph 捕捉跨模态实体关系）[^11]。
-
-> [!note] UFM 的演化路径
-> 综述把 UFM 的演化划分为三阶段[^11]：**Specific**（各自为战，理解与生成模型分立）→ **Combine**（功能组合，能力集成实现复杂任务）→ **Emergent**（复杂交错推理的未来愿景，"通过生成图像来思考"）。当前主流前沿（GPT-4o、Llama 4、Qwen2.5-Omni、Chameleon、Janus）处于 Combine 阶段。
-
-## 周边发展方向（HF 综述视角）
-
-UFM 之外，HF VLM 2025 综述梳理了 2024–2026 多模态模型的几个能力方向[^5]：
-
-- **Reasoning VLM**：在视觉理解上加 long CoT + RL。代表：[[Kimi-VL]] Thinking 变体[^10]、QVQ-72B-preview
-- **Small VLM**：256M–4B 能在消费 GPU 跑：SmolVLM、Gemma 3-4B、Qwen 2.5-VL-3B
-- **MoE decoder**：VLM 的 LLM 部分用 MoE：[[Kimi-VL]]（16B 总 / 2.8B active）[^10]、DeepSeek-VL2、[[Llama 4]][^9]
-- **VLA (Vision-Language-Action)**：VLM 输出端加 action token 控制机器人。代表：π0（Physical Intelligence）、GR00T N1（NVIDIA）
-- **Multimodal RAG**：ColPali、ColQwen 直接 retrieve 文档截图 embedding，绕过 PDF parsing
-
-## 附: Dual-encoder 表示对齐 (CLIP)
-
-[[CLIP]] 不属于 UFM 范畴（无生成能力），但作为 vision encoder 训练范式的奠基至今广泛影响[^2]。视觉 encoder + 文本 encoder 各自把输入映射成向量，对比学习把匹配对的相似度最大化。CLIP 不能"说话"，但可以零样本做图像分类、跨模态检索；论文报告在 ImageNet 上零样本即可达到 ResNet-50 全监督的精度[^2]。
-
-CLIP 训练出的 CLIP-ViT 后来被 LLaVA 等模型作为 vision encoder 复用[^1]。
-
-## Trade-offs
-
-> [!warning] 多模态对推理 infra 的特殊压力
-> 一张图被 [[ViT]] 切 patch 后会产生数百到数千个 token，全部进入 LLM 的 [[KV Cache]]。这对 KV cache 容量、prefill 延迟、batching 策略都有非平凡影响——这也是 [[SGLang]] / [[vLLM]] 等推理引擎单独处理 VLM 的原因之一。
-
-Karpathy 2025 年终回顾认为 Gemini Nano Banana 这种"图文联合生成"代表了 LLM 与人交互的新方向——人偏好视觉而非纯文本输出，未来 LLM 应用图像、infographic、白板等格式"说话"[^6]。这与 UFM 综述的 Emergent 阶段愿景吻合[^11]。
+- Sebastian Raschka, *Understanding Multimodal LLMs* —— [[Sources/Clippings/Understanding Multimodal LLMs|clipping]]
+- HF, *Vision Language Models (Better, faster, stronger)* —— [[Sources/Clippings/Vision Language Models (Better, faster, stronger)|clipping]]
+- NJU + CAS + PKU, *统一多模态理解与生成综述（83 页）* —— [[Sources/Clippings/统一多模态理解与生成综述：83页长文梳理进展和挑战|clipping]]
+- Andrej Karpathy, *2025 LLM Year in Review* —— [[Sources/Clippings/2025 LLM Year in Review|clipping]]
+- 关键 paper：[[Sources/Papers/2103.00020v1.pdf|CLIP]] / [[Sources/Papers/2304.08485v2.pdf|LLaVA]] / [[Sources/Papers/2405.09818v2.pdf|Chameleon]]
 
 [^1]: Sebastian Raschka (2024-11). [[Sources/Clippings/Understanding Multimodal LLMs]]
 [^2]: Radford et al. (2021). *Learning Transferable Visual Models From Natural Language Supervision*. [[Sources/Papers/2103.00020v1.pdf]]
