@@ -1,7 +1,7 @@
 ---
 aliases: []
 created: 2026-04-29
-updated: 2026-04-29
+updated: 2026-05-06
 ---
 
 # TODOs
@@ -57,6 +57,15 @@ updated: 2026-04-29
 - [[Speculative Decoding]] —— 引用方：[[LLM Inference Optimization]]（Variants & Comparisons → Speculative Decoding）
 - [[Pruning]] —— 引用方：[[LLM Inference Optimization]]（Variants & Comparisons → Pruning & Distillation）
 - [[Distillation]] —— 引用方：[[LLM Inference Optimization]]（Variants & Comparisons → Pruning & Distillation）
+- [[CLIP]] —— 引用方：[[Multimodal Models]]（Lead / Variants → Dual-encoder 对齐）
+- [[LLaVA]] —— 引用方：[[Multimodal Models]]（Lead / Variants → Connector + LLM）
+- [[Chameleon]] —— 引用方：[[Multimodal Models]]（Lead / Variants → Native 早期融合）
+- [[ViT]] —— 引用方：[[Multimodal Models]]（Mechanism → Vision encoder）
+- [[GPT-4o]] —— 引用方：[[Multimodal Models]]（Background 时间线 / Variants → Native 早期融合 / 当前趋势 → Omni）
+- [[Llama 4]] —— 引用方：[[Multimodal Models]]（Background 时间线 / Variants → Native 早期融合 / 当前趋势 → Native+MoE）
+- [[Qwen2.5-Omni]] —— 引用方：[[Multimodal Models]]（Background 时间线 / Variants → Native 早期融合 / 当前趋势 → Omni）
+- [[Kimi-VL]] —— 引用方：[[Multimodal Models]]（Background 时间线 / Variants → Connector + LLM / 当前趋势 → MoE+reasoning）
+- [[Qwen-Image-Edit]] —— 引用方：[[Multimodal Models]]（UFM → 模块化联合 → Representation-mediated）
 
 ## WIP 页
 
