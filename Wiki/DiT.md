@@ -85,50 +85,86 @@ DiT 的推理 profile 和 LLM 完全不同。理解这部分有助于把握为�
 
 所以"把上一步的 image-token K/V 留着这一步用"——逻辑上行不通。
 
-### DiT 自己的几种加速路径
+### 主瓶颈在哪：FLOPs 分布（实证数据）
 
-**(1) Conditioning 路径的 K/V 跨步复用** ✅（**这是真 KV cache，可用**）
+要选对加速路径，先看算力实际花在哪。**MMDiT 单步 forward 的 FLOPs 主要在 image token 自己的 attention + FFN**，text 相关计算 < 2%。
 
-文本 prompt 编码（CLIP/T5/Qwen-VL）输出在 N 步去噪里**永远是同一个**——所以：
+**DiTFastAttn (NeurIPS 2024) 实测**[^2]：在 PixArt-Σ-2K (2048×2048) 生成上砍 76% attention FLOPs → **1.8× 端到端加速**。倒推 attention 占总算力比例：
 
-- Text encoder 只 forward 一次
-- Text token 的 K/V（被图像 token 在 cross-attn 或 MMDiT 联合 attn 里查询时用到）**算一次缓存 N 步用**——这是真正意义的 KV cache
+| 输出分辨率 | image token 数 | image-image attention 算力占比 | image FFN 占比 | text 相关占比 |
+|---|---|---|---|---|
+| 1024² | 4,096 | ~35% | ~50% | <2% |
+| 2048² | 16,384 | **~58%**（实测倒推） | ~30% | <0.5% |
+| 4096² | 65,536 | ~80% | ~15% | <0.1% |
 
-SD3 / FLUX / MMDiT 实现里都有。但**它优化的是 conditioning 路径，不是图像 token 自己**。
+**两个关键观察**：
 
-**(2) 步间特征缓存** ✅（"伪 KV cache"，效果显著）
+- **分辨率越高，attention 越主导**——O(N²) vs FFN 的 O(N)，比例随分辨率单向漂移
+- **text 路径占比由 token 比例决定**——text len ÷ (text + image) 的上限就是 text 算力上限。1024² 已经只剩 ~1.2%，2K 更不到 0.5%
 
-观察：相邻去噪步之间，**深层特征变化很小**。代表方法：
+> [!warning] Text K/V cache 在 MMDiT 不是主优化
+> 这意味着把 text token 的 K/V "算一次缓存 N 步" 在 MMDiT 里**实质收益 < 2%**——和 LLM 的 KV cache 节省内存带宽完全不是同一量级。**真正的"text cache" 大头在 text encoder 自己**（T5-XXL 11B / Qwen3-VL 8B 跑 1 次 vs 28 次），那个节省巨大；但层内 K/V cache 就是个角落优化。
 
-| 方法 | 思路 | 效果 |
-|---|---|---|
-| **DeepCache** (CVPR 2024) | 高层跨多步复用，只更新浅层 | 2-3× 加速 |
-| **TeaCache** | 自适应判断"这步要不要重算" | 1.5-2× |
-| **Faster Diffusion** | cross-attn K/V 跨步复用 | 1.5× |
+### DiT 加速路径（按实际收益排序）
 
-形式上像缓存，但是**步级**而非 token 级。
+**(1) 步数压缩** ⭐⭐⭐（**主路径，所有架构通用**）
 
-**(3) 步数压缩** ✅（**主路径**）
-
-直接砍 N。从 50 步压到 4-8 步，比任何"复用"都更暴力：
+直接砍 N。从 50 步压到 4-8 步，**比任何"复用"都更暴力**：
 
 - **LCM** (Latent Consistency Model)
 - **SDXL Turbo** / **FLUX Schnell**
-- **DMD-2**（[[Happy Horse 1.0]] 用这个把 50 步压到 8 步）
+- **DMD-2**（[[Happy Horse 1.0]] 用这个把 50 步压到 8 步，1080p ~38s 出片）
 - **Rectified Flow**（FLUX 主线）
 
-这条和 (1)(2) orthogonal——蒸馏后少步模型仍可叠加 K/V cache 和 step caching。
+收益：**6-12×**。和下面所有路径 orthogonal——蒸馏后少步模型仍可叠加任何 cache。
 
-**(4) Sparse / Linear Attention** ✅（架构级）
+**(2) Attention Sharing across Timesteps** ⭐⭐（**MMDiT 真正的"K/V cache"**）
 
-视频生成时 token 数到几万，attention 的 O(n²) 是核心瓶颈：
+DiTFastAttn 的核心发现[^2]：**相邻去噪步之间 attention 输出高度相似**——可以隔 m 步算一次，中间步直接复用 attention 矩阵。这是最像 LLM KV cache 精神的路径，**但缓存的是 attention 输出而非 K/V 本身**。同源方法：
 
-- **Sparse DiT**：局部窗口
-- **Linear / Mamba 替代**
+| 方法 | 思路 | 效果 |
+|---|---|---|
+| **DiTFastAttn** Attention Sharing across Timesteps | 跨步复用 attention 输出 | 1.5-1.8× |
+| **DeepCache** (CVPR 2024) | 高层 feature 跨多步复用 | 2-3×（U-Net 系强） |
+| **TeaCache** | 自适应判断这步要不要重算 | 1.5-2× |
+| **Faster Diffusion** | 跨步共享 cross-attn 输出（U-Net）[^3] | 1.5× |
+
+**(3) Attention Sharing across CFG** ⭐⭐（DiTFastAttn 第三轴）
+
+DiTFastAttn 还发现：**CFG 推理时 cond / uncond 两次 forward 的 attention 输出高度相似**——可以算一次复用[^2]。这条相当于**把 CFG 双 forward 的 attention 部分省掉一半**——纯白嫖。
+
+> [!note] CFG 共享是被低估的优化
+> 之前我们讨论 CFG 时只聚焦"算力翻倍"——实际上 cond / uncond 的 attention 矩阵在多数层都几乎一样，业界 (DiTFastAttn / FasterCache 等) 已经在做这条共享。新一代蒸馏模型 (Schnell、DMD-2) 直接训练时就把 CFG 内化掉，更彻底。
+
+**(4) Sparse / Local Attention** ⭐⭐（**高分辨率与视频必备**）
+
+视频生成时 token 数到几万，attention 的 O(N²) 是核心瓶颈：
+
+- **DiTFastAttn Window Attention with Residual Sharing**：head-wise 选全局或局部，2K 生成省 76% attention FLOPs[^2]
+- **DiTFastAttnV2**：head-wise 自适应，进一步压到 1.5× 加速
 - **3D RoPE + 时空窗口化**（Wan、Sora 路线）
+- **Sparse DiT** / **Linear / Mamba 替代主干**
 
-> [!warning] 一句话总结
-> **LLM 那种"自回归 token 缓存"在 DiT 上行不通**——但 DiT 有自己一套"步间复用 + 步数压缩 + 稀疏 attention"组合拳。**conditioning 路径上的 K/V cache 是唯一沿用 LLM 同名概念且确实有效的**——image token 自身不能用 KV cache。
+收益：**1.5-5×**（视频场景更高）。
+
+**(5) 量化（FP8 / INT4）** ⭐（全局加速，与上面全部 orthogonal）
+
+权重 / 激活精度降低，整套 attention + FFN 都加速。收益 1.5-2×。
+
+**(6) Conditioning 路径的 K/V "cache"** ⭐（**主要价值在 text encoder 层，不在层内**）
+
+| 缓存粒度 | 安全性 | 收益 | 备注 |
+|---|---|---|---|
+| **Text encoder 输出** | ✅ 严格安全 | **巨大**（11B encoder × N 步 → ×1） | 所有架构通用，是真正大头 |
+| 原版 DiT (cross-attn) 各层 text K/V | ✅ 安全 | ~5% | 仅适用于 cross-attn 架构 (PixArt 系) |
+| **MMDiT 各层 text K/V** | ⚠️ 严格意义不可（text 被 image 影响） | **<2%** | Faster Diffusion / TGATE 实测变化慢，可近似缓存[^3] |
+| **U-Net SDXL 的 cross-attn 跨步跳过** | ✅ 安全（cross-attn 5 步后 converge） | **10-50%**[^3] | 仅 U-Net 适用（cross-attn 是独立大 block） |
+
+> [!warning] TGATE 加速 ≠ MMDiT 适用
+> TGATE 论文报告的 SDXL 上 50% 延迟下降，是因为 **U-Net SDXL 里 cross-attention 本身就占 ~40% 算力**（独立 block）[^3]。**MMDiT 里 cross-attention 不存在独立形式——融合进 joint self-attn 了**——这条加速没法直接搬。把 TGATE 加速预期套到 FLUX / SD3 / Qwen-Image 上是常见误读。
+
+> [!quote] 一句话总结
+> **真正改变游戏的是 (1) 步数压缩**（6-12×）；其次是 (2)(3)(4) 这三条 attention 自身的优化（各 1.5-2×，可叠）；text K/V cache 在 MMDiT 上只是个 footnote-level 优化，和 LLM 的 KV cache 在概念家族里同名，**但量级和地位完全不同**。
 
 ## Related
 
@@ -140,3 +176,5 @@ SD3 / FLUX / MMDiT 实现里都有。但**它优化的是 conditioning 路径，
 - [[KV Cache]] —— LLM 的 KV cache 概念（对比理解 DiT 为何不适用）
 
 [^1]: Peebles & Xie (2022). *Scalable Diffusion Models with Transformers*. [[Sources/Papers/2212.09748v2.pdf]]
+[^2]: Yuan et al. (2024-06, NeurIPS 2024). *DiTFastAttn: Attention Compression for Diffusion Transformer Models*. [[Sources/Papers/2406.08552v2.pdf]]
+[^3]: Liu et al. (2024-04). *Faster Diffusion via Temporal Attention Decomposition* (含 TGATE 方法). [[Sources/Papers/2404.02747v3.pdf]]

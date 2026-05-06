@@ -37,6 +37,11 @@ UFM 根据范式不同（详见 [[UFM]]）有不同 infra 压力：
 - **模块化联合**（[[Qwen-Image-Edit]] / [[Qwen-Image-2.0]]）："VLM 推理 + diffusion 推理"两段式 pipeline，部署比纯 diffusion 复杂。v2.0 后 MMDiT 主干从 20B 砍到 7B、统一了 gen+edit 单模型，**单步算力降到约 1/3，但原生分辨率上调到 2K（视觉 token 数 ×4 → attention O(n²) ×16）部分抵消了瘦身收益**
 - **AR-Diffusion 混合**（Transfusion、JanusFlow、[[BAGEL]]）：单模型既要 AR decode 又要 N 步去噪，调度复杂度叠加。BAGEL 这种"边推理边生图"在单请求内反复在 AR / diffusion 模式间切换，**SGLang / vLLM 现有调度都为纯 AR 设计，没有现成引擎能开箱即用**
 
+> [!warning] 关于 DiT/MMDiT 的"主瓶颈在哪"——别被 K/V cache 概念误导
+> MMDiT 单步 forward 的算力分布**实证测量**[^5]：image-image attention ~35%（1K）→ ~58%（2K），image FFN ~30-50%，**text 相关算力 < 2%**——所以"text K/V 跨步缓存"虽然名字像 LLM 的 KV cache，**实质收益 <2%**。
+>
+> 真正大头：(1) **步数压缩**（DMD-2 / Schnell / LCM）6-12×；(2) **跨步 attention 共享**（DiTFastAttn temporal）1.5-1.8×；(3) **CFG 间 attention 共享**（DiTFastAttn CFG axis）接近 1.5×。详见 [[DiT#推理特性与加速路径]]。
+
 ## Omni 推理：延迟预算才是瓶颈，不是算力
 
 [[Qwen2.5-Omni]] / [[Qwen3-Omni]] / [[Qwen3.5-Omni]] 这类对话型 omni 模型的瓶颈与生成型完全不同——**核心指标是 TTFT（首响应时间），不是吞吐**：
@@ -86,3 +91,4 @@ UFM 根据范式不同（详见 [[UFM]]）有不同 infra 压力：
 [^2]: Xu et al., Qwen Team, Alibaba (2026-03). *Qwen3.5-Omni Technical Report*. [[Sources/Papers/2604.15804v2.pdf]]
 [^3]: Alibaba (2026-04-09). *Happy Horse 1.0* (官方页). [https://happy-horse.art/](https://happy-horse.art/)
 [^4]: Alibaba Tongyi Lab (2026-04). *Wan 2.7: Breakthrough AI Image & Video Generation Model with Thinking Mode*. [https://www.cliprise.app/news/wan-2-7-video-release](https://www.cliprise.app/news/wan-2-7-video-release)
+[^5]: Yuan et al. (2024-06, NeurIPS 2024). *DiTFastAttn: Attention Compression for Diffusion Transformer Models*. [[Sources/Papers/2406.08552v2.pdf]]
