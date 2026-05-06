@@ -47,13 +47,14 @@ updated: YYYY-MM-DD
 - 内部 source（Clippings/Papers）走 `[[]]`
 - 外部 URL 走 `[text](url)`
 - paper 加作者-年-标题方便识别
+- **PDF 等非 .md 附件必须带扩展名**，否则 Obsidian wikilink 失效。Clippings 是 .md 笔记，可省略扩展名
 
 例：
 ```markdown
 PagedAttention 优化了内存碎片[^1]，类似思路也出现在 SGLang 的 RadixCache[^2]。
 NVIDIA 官方 blog 还提到 KV reuse[^3]。
 
-[^1]: Kwon et al. (2023). [[Sources/Papers/2309.06180_PagedAttention]]
+[^1]: Kwon et al. (2023). [[Sources/Papers/2309.06180_PagedAttention.pdf]]
 [^2]: [[Sources/Clippings/Fast and Expressive LLM Inference with RadixAttention and SGLang]]
 [^3]: [Mastering LLM Techniques](https://developer.nvidia.com/blog/mastering-llm-techniques-inference-optimization/)
 ```
