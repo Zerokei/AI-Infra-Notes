@@ -60,12 +60,20 @@ updated: 2026-05-06
 - [[CLIP]] —— 引用方：[[Multimodal Models]]（Lead / Variants → Dual-encoder 对齐）
 - [[LLaVA]] —— 引用方：[[Multimodal Models]]（Lead / Variants → Connector + LLM）
 - [[Chameleon]] —— 引用方：[[Multimodal Models]]（Lead / Variants → Native 早期融合）
-- [[ViT]] —— 引用方：[[Multimodal Models]]（Mechanism → Vision encoder）
 - [[GPT-4o]] —— 引用方：[[Multimodal Models]]（Background 时间线 / Variants → Native 早期融合 / 当前趋势 → Omni）
 - [[Llama 4]] —— 引用方：[[Multimodal Models]]（Background 时间线 / Variants → Native 早期融合 / 当前趋势 → Native+MoE）
 - [[Qwen2.5-Omni]] —— 引用方：[[Multimodal Models]]（Background 时间线 / Variants → Native 早期融合 / 当前趋势 → Omni）
 - [[Kimi-VL]] —— 引用方：[[Multimodal Models]]（Background 时间线 / Variants → Connector + LLM / 当前趋势 → MoE+reasoning）
-- [[Qwen-Image-Edit]] —— 引用方：[[Multimodal Models]]（UFM → 模块化联合 → Representation-mediated）
+- [[Qwen-Image-Edit]] —— 引用方：[[Multimodal Models]]（UFM → 模块化联合 → Representation-mediated）；[[Qwen-Image-2.0]] 出现后这条线已并入单模型，原 Edit 仍保留作为历史脉络
+- [[Qwen-Image]] —— 引用方：[[Multimodal Models]]（演进里程碑 2025-08）；v1 基线，介绍 MMDiT + frozen Qwen2.5-VL + Wan2.1-VAE adapted
+- [[Qwen-Image-2.0]] —— 引用方：[[Multimodal Models]]（时间线 / 商业化 T2I 表 / 编辑表 "已并入"）/ [[UFM]]（mod-联合 representation-mediated 升级版）/ [[Multimodal Inference Considerations]]（UFM 节）；7B MMDiT + Qwen3-VL 8B + 统一 gen+edit
+- [[Qwen3-Omni]] —— 引用方：[[Multimodal Models]]（时间线 2025-09）/ [[UFM]]（AR omni 子线）/ [[Multimodal Inference Considerations]]（Omni 节）；Thinker-Talker MoE，Qwen3.5-Omni 的前代
+- [[Qwen3.5-Omni]] —— 引用方：[[Multimodal Models]]（时间线 2026-03）/ [[UFM]]（AR omni 子线）/ [[Multimodal Inference Considerations]]（Omni 节 Related）；Hybrid-MoE + ARIA + RVQ 替换 DiT，256k 上下文，Plus/Flash/Light 三档
+- [[Qwen3-VL]] —— 引用方：[[Multimodal Models]]（VLM 表）/ [[VLM Architecture]]（callout + Related）；Qwen2.5-VL 后继，原生分辨率 + 强 OCR + 长视频
+- [[InternVL3]] —— 引用方：[[Multimodal Models]]（VLM 表）/ [[VLM Architecture]]（callout + Related）；MMMU 72.2，开源 VLM SOTA，1B-78B 多档
+- [[BAGEL]] —— 引用方：[[UFM]]（AR-Diffusion hybrid 当前 SOTA）/ [[Multimodal Inference Considerations]]（UFM 节）；ByteDance Seed 2025-05，14B/7B-active MoT，GenEval 0.88，Apache 2.0，3D 空间导航
+- [[Happy Horse 1.0]] —— 引用方：[[Multimodal Models]]（时间线 2026-04 / 四条主线）/ [[Multimodal Inference Considerations]]（视频生成节）；阿里 15B 统一 Transformer + DMD-2 8 步蒸馏，开源视频 Arena #1
+- [[Wan 2.7]] —— 引用方：[[Multimodal Inference Considerations]]（视频生成节 Thinking Mode）；阿里 Tongyi Lab 2026-04，4 模型套件 + Thinking Mode 前置推理
 
 ## WIP 页
 

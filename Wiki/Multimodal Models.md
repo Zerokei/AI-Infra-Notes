@@ -44,8 +44,13 @@ updated: 2026-05-06
 | 2025-03 | [[Qwen2.5-Omni]] | 开源 any-to-any，Thinker-Talker + TMRoPE[^8] |
 | 2025-04 | [[Llama 4]] | 开源 native multimodal MoE[^9] |
 | 2025-04 | [[Kimi-VL]] | 开源 MoE VLM，Thinking 变体加 long CoT[^10] |
+| 2025-08 | [[Qwen-Image]] | MMDiT + frozen Qwen2.5-VL，开源 T2I 文字渲染 SOTA[^12] |
+| 2025-09 | [[Qwen3-Omni]] | Thinker-Talker MoE，开源 Omni 接力者[^13] |
+| 2026-02 | [[Qwen-Image-2.0]] | 7B MMDiT，**统一 gen+edit 单模型**，参数较 v1 砍 65%[^14] |
+| 2026-03 | [[Qwen3.5-Omni]] | Hybrid-MoE + ARIA 对齐 + RVQ 替换 DiT，256k 长上下文[^15] |
+| 2026-04 | [[Happy Horse 1.0]] | 15B 统一 Transformer + DMD-2 8 步蒸馏，开源视频 Arena #1[^16] |
 
-三条主线：(1) **看懂图**（CLIP / LLaVA 路线，主流 VLM）→ 详见 [[VLM Architecture]]；(2) **看懂 + 能生成**（Chameleon / GPT-4o 路线，UFM）→ 详见 [[UFM]]；(3) **效率优化**（MoE、long context、原生分辨率），叠加在前两条主线上。
+四条主线：(1) **看懂图**（CLIP / LLaVA 路线，主流 VLM）→ 详见 [[VLM Architecture]]；(2) **看懂 + 能生成**（Chameleon / GPT-4o / Qwen-Image-2.0 路线，UFM）→ 详见 [[UFM]]；(3) **视频生成**（Wan / Happy Horse 路线，2026 年独立成赛道，带原生音视频联合合成）；(4) **效率优化**（MoE、long context、原生分辨率、step distillation），叠加在前三条主线上。
 
 ## 主流 VLM 是怎么工作的
 
@@ -69,6 +74,9 @@ NJU + CAS Auto + PKU 综述按"理解和生成怎么连起来"分三种范式[^1
 
 按"产品做什么"分三类，中外各举 3-4 个代表。表格列：模型 | 公司 | 部署 | 关键 infra 标签。详细架构 / 推理 pattern / 规模 / 延迟请跳每个产品的 atomic 页。
 
+> [!warning] 此清单按月过时，范式才稳定
+> 下面的具体模型清单参考点是 **2026 Q2**。开源生态轮换很快——2025 Q4 流行的 FLUX.1 已被 FLUX.2 取代；2026-04 出的 Happy Horse 1.0 直接 disrupt 了同公司的 Wan 2.5；Qwen-Image-Edit 独立线被自家 Qwen-Image-2.0 单模型合并。**评估时请把"范式"（VLM / UFM / T2I / 视频）当作稳定锚点，"具体模型"当季度复查项。** 最新榜单建议直接看 [Artificial Analysis Arena](https://artificialanalysis.ai/) 和 [Open VLM Leaderboard](https://huggingface.co/spaces/opencompass/open_vlm_leaderboard)。
+
 ### 视觉理解（VLM）
 
 | 模型 | 公司 | 部署 | 标签 |
@@ -76,7 +84,8 @@ NJU + CAS Auto + PKU 综述按"理解和生成怎么连起来"分三种范式[^1
 | [[GPT-4o]] | OpenAI | 闭源 API | native multimodal AR；语音 232-320 ms 端到端[^7] |
 | Claude 4 Vision | Anthropic | 闭源 API | 长文档 / 多图理解强 |
 | Gemini 2.5 | Google | 闭源 API | native multimodal；1M+ 上下文 |
-| Qwen2.5-VL | 阿里 | 开源 (3B / 7B / 32B / 72B) | 原生分辨率 |
+| [[Qwen3-VL]] | 阿里 | 开源 (3B / 7B / 32B / 72B) | 原生分辨率 + 强 OCR + 长视频；HF 下载量长期 top |
+| [[InternVL3]] | 上海 AI Lab | 开源 (1B-78B 多档) | **MMMU 72.2，开源 VLM SOTA**；学术界最常用 baseline |
 | [[Kimi-VL]] | Moonshot | 部分开源 | MoE (16B 总 / 2.8B 激活) + MoonViT 原生分辨率[^10] |
 | 豆包视觉 (Doubao-VL) | 字节 | 闭源 API (火山引擎) | 国内 API 价格 + 并发优势 |
 
@@ -86,9 +95,10 @@ NJU + CAS Auto + PKU 综述按"理解和生成怎么连起来"分三种范式[^1
 |---|---|---|---|
 | Midjourney v7 | Midjourney | 闭源订阅 (Discord / Web) | 美学质量标杆；无 API |
 | DALL-E 3 | OpenAI | 闭源 (集成 ChatGPT) | 强 prompt following |
-| FLUX.1 | Black Forest Labs | dev / schnell 开源；pro 闭源 | rectified flow + DiT；schnell 4 步出图 |
-| Stable Diffusion 3.5 | Stability AI | 开源可商用 | UNet → MMDiT 架构演进代表 |
-| Qwen-Image | 阿里 | 部分开源 | 20B MMDiT；[[Qwen-Image-Edit]] 基座[^12] |
+| **FLUX.2** (dev / Turbo) | Black Forest Labs | dev / schnell 开源；pro 闭源 | **Artificial Analysis Arena 开源 #1** (Elo 1165)；通用美学 + 真实感强 |
+| Stable Diffusion 3.5 | Stability AI | 开源可商用 | UNet → MMDiT 架构演进代表；生态 (LoRA / ControlNet) 最丰富 |
+| **[[Qwen-Image-2.0]]** | 阿里 | 部分开源 (走 chat.qwen.ai 优先) | **7B MMDiT + Qwen3-VL 8B encoder**；中文场景 / 文字密集场景 SOTA[^14] |
+| Z-Image Turbo | (开源团队) | 开源 | 差异化小尺寸 + 低延迟 |
 | 即梦 (Dreamina) | 字节 | 闭源 API + Web | 国内消费级 + 商品图场景 |
 | 可图 (Kolors) | 快手 | 闭源 API + Web | 与可灵视频同生态 |
 
@@ -99,7 +109,8 @@ NJU + CAS Auto + PKU 综述按"理解和生成怎么连起来"分三种范式[^1
 | Adobe Firefly Generative Fill | Adobe | 闭源 (集成 PS / Lightroom) | 自研 diffusion；训练数据无版权风险 |
 | Gemini Nano Banana (2.5) | Google | 闭源 (Gemini app) | UFM native 生图，多轮编辑流畅[^6] |
 | GPT-4o Image Generation | OpenAI | 闭源 (集成 ChatGPT) | UFM native AR 生图[^7] |
-| [[Qwen-Image-Edit]] | 阿里 | 开源 | 模块化联合 UFM：frozen Qwen2.5-VL + VAE → MMDiT[^12] |
+| **FLUX.2 Kontext** | Black Forest Labs | 开源 | 通用对话式编辑标杆（"把帽子去掉" 这类指令式编辑效果好） |
+| [[Qwen-Image-Edit]] *(已并入 [[Qwen-Image-2.0]])* | 阿里 | 开源 | 原 Edit 独立线 (Edit / Edit-2509 多图 / Layered / Edit-2511) **已于 2026-02 合并到 Qwen-Image-2.0 单模型**[^14] |
 
 ## Infra 视角的关键差异（速览）
 
@@ -142,3 +153,7 @@ HF VLM 2025 综述梳理的几个 2024–2026 能力方向[^5]：
 [^10]: Kimi Team, Moonshot AI (2025-04). *Kimi-VL Technical Report*. [[Sources/Papers/2504.07491v3.pdf]]
 [^11]: 让你更懂AI的 (2025-12-08), 介绍 NJU + CAS Auto + PKU 联合综述 *A Survey of Unified Multimodal Understanding and Generation: Advances and Challenges*（参考 750+ paper，83 页）. [[Sources/Clippings/统一多模态理解与生成综述：83页长文梳理进展和挑战]]
 [^12]: Qwen Team, Alibaba (2025-08). *Qwen-Image Technical Report*. [[Sources/Papers/2508.02324v1.pdf]]
+[^13]: Xu et al., Qwen Team, Alibaba (2025-09). *Qwen3-Omni Technical Report*. [[Sources/Papers/2509.17765v1.pdf]]
+[^14]: Qwen Team, Alibaba (2026-02-10). *Qwen-Image-2.0: Professional infographics, exquisite photorealism* (官方博客). [https://qwen.ai/blog?id=qwen-image-2.0](https://qwen.ai/blog?id=qwen-image-2.0)
+[^15]: Xu et al., Qwen Team, Alibaba (2026-03). *Qwen3.5-Omni Technical Report*. [[Sources/Papers/2604.15804v2.pdf]]
+[^16]: Alibaba (2026-04-09). *Happy Horse 1.0* (官方页). [https://happy-horse.art/](https://happy-horse.art/)

@@ -26,12 +26,13 @@ VLM（Vision-Language Model）的标准架构是 [[LLaVA]] 之后开源 VLM 的�
 - **LLM**：直接复用预训练 LLM。训练时通常先冻住 LLM 只训 connector；instruction-tuning 阶段再解冻——LLaVA 的关键贡献 **visual instruction tuning** 就是用 GPT-4 合成图文指令数据让 LLM 学会"看图回答指令"[^2]
 
 > [!note] 视觉 token 的接入位置有两种
-> 多数 VLM（LLaVA、Molmo、Qwen2-VL）把视觉 token 拼在文本 token 前作为输入序列。少数例外（Llama 3.2 11B/90B、Flamingo）通过 **cross-attention** 注入 LLM 内部某些层——好处是视觉信息不占 KV cache、LLM 主体可冻结当作纯文本模型用，代价是 LLM 架构要改[^1]。
+> 多数 VLM（LLaVA、Molmo、Qwen2-VL / Qwen2.5-VL / [[Qwen3-VL]]、[[InternVL3]]、[[Kimi-VL]]）把视觉 token 拼在文本 token 前作为输入序列——这是当前开源 VLM 的事实标准。少数例外（Llama 3.2 11B/90B、Flamingo）通过 **cross-attention** 注入 LLM 内部某些层——好处是视觉信息不占 KV cache、LLM 主体可冻结当作纯文本模型用，代价是 LLM 架构要改[^1]。
 
 ## Related
 
 - [[Multimodal Models]] —— 多模态全景导航
 - [[LLaVA]] —— 三段式开山作
+- [[Qwen3-VL]] / [[InternVL3]] / [[Kimi-VL]] —— 当前开源 VLM 主力
 - [[ViT]] —— 视觉 encoder 的主流选择
 - [[CLIP]] —— CLIP-ViT 的来源
 - [[Multimodal Inference Considerations]] —— 三段式对推理 infra 的影响

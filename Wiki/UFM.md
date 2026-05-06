@@ -21,7 +21,7 @@ LLM 当"指挥官"，要画图调 DALL-E API、要做语音调 TTS API。代表�
 LLM 与生成模块（通常是预训练扩散模型）通过更紧密的接口连接。综述按"LLM 怎么把信息传给生成器"再分两类[^1]：
 
 - **靠自然语言传**（prompt-mediated）：LLM 写精细 prompt 给扩散模型。代表：Mini-Gemini、ModaVerse
-- **靠中间向量传**（representation-mediated）：LLM 输出向量直接喂给生成器，绕过自然语言损耗。代表：GILL（首次对齐 LLM 语言空间和图像生成模型）、Emu 系列、[[Qwen-Image-Edit]]（frozen Qwen2.5-VL 出语义 + VAE 出外观 → MMDiT 扩散融合）[^2]
+- **靠中间向量传**（representation-mediated）：LLM 输出向量直接喂给生成器，绕过自然语言损耗。代表：GILL（首次对齐 LLM 语言空间和图像生成模型）、Emu 系列、[[Qwen-Image-Edit]]（frozen Qwen2.5-VL 出语义 + VAE 出外观 → MMDiT 扩散融合）[^2]、[[Qwen-Image-2.0]]（v1 路线的演进版：MMDiT 从 20B 砍到 **7B**、text encoder 升级到 Qwen3-VL 8B、**统一 gen+edit 单模型**取消之前的双轨）[^3]
 
 优点：复用现成扩散模型、训练成本低。缺点：自然语言中介丢细节，向量中介需额外对齐，生成上限仍受外部扩散模型限制。
 
@@ -31,7 +31,10 @@ LLM 与生成模块（通常是预训练扩散模型）通过更紧密的接口�
 
 **自回归（AR）**——LLM 那套"猜下一个 token"扩展到图像。具体路径：vision tokenizer（VQ-VAE / VQ-GAN）把一张 256×256 图压成 1k+ 个离散视觉 token，加进 LLM 词表，LLM 自回归预测视觉 token，最后 VQ decoder 还原像素。
 
-代表：[[Chameleon]]（首个主流早期融合）、[[GPT-4o]]、[[Llama 4]]、[[Qwen2.5-Omni]]。
+代表：[[Chameleon]]（首个主流早期融合）、[[GPT-4o]]、[[Llama 4]]、[[Qwen2.5-Omni]] → [[Qwen3-Omni]] (2025-09) → [[Qwen3.5-Omni]] (2026-03，Hybrid-MoE + ARIA 对齐 + RVQ 替换 DiT)[^4][^5]。
+
+> [!note] Omni 是 AR 范式的特化子线
+> Omni 系列（GPT-4o、Qwen-Omni 系列）严格说**不是真正的 any-to-any**——输入端接 any modality (text/image/audio/video)，但输出端只有 **text + audio**，不输出图像/视频。所以 Omni 是 AR 端到端范式在"全模态输入 + 双模态输出"上的特化，而非全 any-to-any。Qwen3.5-Omni 用 RVQ 离散 token 替代了上一代用于音频合成的 DiT 扩散步骤，把流式语音延迟压到对话级[^5]。
 
 > [!warning] 纯 AR 生图的固有限制
 > 综述明确点出四个问题[^1]：(1) **慢**——一张高分辨率图常 1k+ token 逐个生成；(2) **保真度受 VQ tokenizer 限制**；(3) **不符合图像内在 2D 结构**——硬塞成 1D 因果序列；(4) **误差累积**。这正是 AR-Diffusion 混合范式兴起的动机。
@@ -53,9 +56,9 @@ LLM 与生成模块（通常是预训练扩散模型）通过更紧密的接口�
 
 **AR-Diffusion 混合**——单一架构同时学 AR + diffusion。AR 强在 sequential / discrete（文本），diffusion 强在 continuous / spatial（图像）；hybrid 让一个模型用各自擅长的方式处理对应模态。
 
-代表：Transfusion（单 Transformer，文本 AR 损失 + 图像扩散损失，开创性工作）、Show-o（next-token + masked-token 预测）、JanusFlow（解耦编码器 + 矫正流）、BAGEL。
+代表：Transfusion（单 Transformer，文本 AR 损失 + 图像扩散损失，开创性工作）、Show-o（next-token + masked-token 预测）、JanusFlow（解耦编码器 + 矫正流）、Janus-Pro（解耦理解/生成编码器，DeepSeek 升级版）、**[[BAGEL]]**（ByteDance Seed 2025-05，14B 总 / 7B 激活的 **MoT (Mixture-of-Transformer-Experts)** 架构，**GenEval 0.88 已超过 FLUX-1-dev、SD3-Medium、Janus-Pro-7B**，Apache 2.0 开源，还支持 3D 空间导航这类非常规能力）[^6]。
 
-综述认为混合建模**生成质量显著优于纯 AR，避免了模块化联合的信息传递瓶颈**[^1]——是当前研究最活跃的方向。
+综述认为混合建模**生成质量显著优于纯 AR，避免了模块化联合的信息传递瓶颈**[^1]——是当前研究最活跃的方向。BAGEL 的出现标志着开源 hybrid UFM 在生成质量上**首次超过同期开源 diffusion 模型**。
 
 **其他**——编码器-解码器（OFA、Unified-IO）、状态空间模型（OmniMamba 用 Mamba-2 替代 Transformer 二次复杂度）、图结构（GraphGPT-o）[^1]。
 
@@ -66,9 +69,15 @@ LLM 与生成模块（通常是预训练扩散模型）通过更紧密的接口�
 ## Related
 
 - [[Multimodal Models]] —— 多模态全景导航
-- [[Qwen-Image-Edit]] —— 模块化联合代表（开源旗舰）
+- [[Qwen-Image-Edit]] / [[Qwen-Image-2.0]] —— 模块化联合代表（开源旗舰）
 - [[GPT-4o]] / [[Chameleon]] / [[Llama 4]] —— 端到端统一 AR 代表
+- [[Qwen3-Omni]] / [[Qwen3.5-Omni]] —— Omni 子线（输入 any，输出 text+audio）
+- [[BAGEL]] —— AR-Diffusion hybrid 当前开源 SOTA
 - [[Multimodal Inference Considerations]] —— UFM 各范式的推理 profile
 
 [^1]: 让你更懂AI的 (2025-12-08), 介绍 NJU + CAS Auto + PKU 联合综述 *A Survey of Unified Multimodal Understanding and Generation: Advances and Challenges*（参考 750+ paper，83 页）. [[Sources/Clippings/统一多模态理解与生成综述：83页长文梳理进展和挑战]]
 [^2]: Qwen Team, Alibaba (2025-08). *Qwen-Image Technical Report*. [[Sources/Papers/2508.02324v1.pdf]]
+[^3]: Qwen Team, Alibaba (2026-02-10). *Qwen-Image-2.0: Professional infographics, exquisite photorealism* (官方博客). [https://qwen.ai/blog?id=qwen-image-2.0](https://qwen.ai/blog?id=qwen-image-2.0)
+[^4]: Xu et al., Qwen Team, Alibaba (2025-09). *Qwen3-Omni Technical Report*. [[Sources/Papers/2509.17765v1.pdf]]
+[^5]: Xu et al., Qwen Team, Alibaba (2026-03). *Qwen3.5-Omni Technical Report*. [[Sources/Papers/2604.15804v2.pdf]]
+[^6]: ByteDance Seed (2025-05). *BAGEL: The Open-Source Unified Multimodal Model*. [https://seed.bytedance.com/en/blog/seed-research-bagel-the-open-source-unified-multimodal-model-an-all-in-one-model](https://seed.bytedance.com/en/blog/seed-research-bagel-the-open-source-unified-multimodal-model-an-all-in-one-model)
