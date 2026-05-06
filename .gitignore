@@ -3,3 +3,6 @@
 .obsidian/cache
 .obsidian/cache.json
 .trash/
+
+# PDF 源文件留本地，不上 GitHub（体积大且非必需，参考 arXiv ID 自取）
+Sources/Papers/*.pdf
