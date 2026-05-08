@@ -1,7 +1,7 @@
 ---
 aliases: [Diffusion Transformer, 扩散 Transformer]
 created: 2026-05-06
-updated: 2026-05-06
+updated: 2026-05-08
 ---
 
 # DiT
@@ -26,24 +26,32 @@ DiT 不是新的 diffusion 范式——**diffusion 过程本身完全没变**，
 
 ## Mechanism
 
-DiT 不直接处理像素——先用 VAE 把图像压到 latent 空间（典型 8× 压缩：1024×1024 → 128×128），DiT 在 latent 上做 N 步去噪，最后 VAE decoder 还原回像素。
+> [!note] 先解释一个关键术语：**latent**
+> "Latent" 直译 "潜在的"，在 ML 里指**模型自己学到的、压缩过的中间表示**——既不是原始像素也不是最终输出，是一个"草稿空间"。
+>
+> **类比**：电影剪辑师不直接动 4K 原片，先转成 720p 代理片，在代理片上做剪辑、特效，最后渲染回 4K 输出。代理片 = latent；剪辑师 = DiT；最终渲染 = VAE decoder。
+>
+> 关键性质：(1) 比像素小很多（128×128 vs 1024×1024，~64× 算力节省）；(2) 仍保留所有人眼能感知的信息；(3) 是"机器内部语言"——你打开 latent tensor 看里面的数字什么都看不出。
 
-```text
-像素图 1024×1024
-    ↓ VAE encoder (8×)
-latent 128×128 (含噪声)
-    ↓ patchify (2×2 patch)
-4096 个 latent token
-    ↓ ↻ ↻ ↻ N 步去噪 (典型 20-50 步)
-    │  每步 Transformer:
-    │    - self-attention over 4096 latent token
-    │    - cross-attention with text condition
-    │    - 加 timestep embedding (告诉模型现在是第几步)
-    │    - 输出预测的 noise (或 v-prediction / 矫正流目标)
-    ↓
-clean latent
-    ↓ VAE decoder
-像素图 1024×1024
+DiT 不直接处理像素——先用 VAE 把图像压到 latent 空间（典型 8× 压缩：1024×1024 → 128×128），DiT 在 latent 上做 N 步去噪（典型 20–50 步），最后 VAE decoder 还原回像素。
+
+```mermaid
+flowchart TD
+    Img1["像素图 1024×1024"]
+    Latent["latent 128×128（含噪声）"]
+    Tokens["4096 个 latent token"]
+    Clean["clean latent"]
+    Img2["像素图 1024×1024"]
+
+    subgraph Step["每步 Transformer · ×N"]
+        direction LR
+        SA["self-attention<br/>4096 token"] --> CA["cross-attention<br/>with text"] --> Pred["输出 noise / v / RF"]
+    end
+
+    Img1 -->|"VAE encoder 8×"| Latent
+    Latent -->|"patchify 2×2"| Tokens
+    Tokens --> Step --> Clean
+    Clean -->|"VAE decoder"| Img2
 ```
 
 > [!note] AdaLN-Zero：DiT 的 conditioning 巧思
