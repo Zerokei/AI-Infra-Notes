@@ -14,7 +14,7 @@ AI-Infra-Notes 全部 wiki 页面的目录，按主题分组。每条一句话�
 
 - [[Transformer]] —— LLM 与多模态的共同骨架；attention 机制、encoder-decoder vs decoder-only、推理视角下的算力 / 显存特征。
 - [[ViT]] —— 把 Transformer 直接搬到图像（patch 当 token），现代多模态视觉编码器的默认选择。
-- [[DiT]] —— 把扩散模型的去噪主干从 U-Net 换成 Transformer，FLUX / SD3 / Sora 共同的事实标准。
+- [[DiT]] —— 文生图 / 文生视频的去噪主干，把扩散模型里的 U-Net 换成 Transformer；FLUX / SD3 / Sora 的共同基底。
 
 ## LLM 推理
 
@@ -39,3 +39,4 @@ AI-Infra-Notes 全部 wiki 页面的目录，按主题分组。每条一句话�
 - [[VLM Architecture]] —— LLaVA 之后开源 VLM 的事实标准三段式：vision encoder + connector + LLM。
 - [[UFM]] —— 同时具备「理解 + 生成」的统一多模态模型；按理解与生成怎么连分三种范式（外部 API / 模块化联合 / 端到端原生）。
 - [[Multimodal Inference Considerations]] —— 多模态推理 infra 与纯 LLM 的差异：VLM 是放大版 LLM，T2I 完全不同的 profile，UFM 混合负载。
+- [[Qwen-Image-Edit-2511]] —— Qwen 系图像编辑模型 2025-11 版；架构同上代 2509，改进全在权重；本页重点是 diffusers 单卡参考流水线 + vllm-omni 三层并行（TP / CFG / SP）服务化部署。

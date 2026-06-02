@@ -110,7 +110,7 @@ NJU + CAS Auto + PKU 综述按"理解和生成怎么连起来"分三种范式[^1
 | Gemini Nano Banana (2.5) | Google | 闭源 (Gemini app) | UFM native 生图，多轮编辑流畅[^6] |
 | GPT-4o Image Generation | OpenAI | 闭源 (集成 ChatGPT) | UFM native AR 生图[^7] |
 | **FLUX.2 Kontext** | Black Forest Labs | 开源 | 通用对话式编辑标杆（"把帽子去掉" 这类指令式编辑效果好） |
-| [[Qwen-Image-Edit]] *(已并入 [[Qwen-Image-2.0]])* | 阿里 | 开源 | 原 Edit 独立线 (Edit / Edit-2509 多图 / Layered / Edit-2511) **已于 2026-02 合并到 Qwen-Image-2.0 单模型**[^14] |
+| [[Qwen-Image-Edit]] *(已并入 [[Qwen-Image-2.0]])* | 阿里 | 开源 | 原 Edit 独立线 (Edit / Edit-2509 多图 / Layered / [[Qwen-Image-Edit-2511]]) **已于 2026-02 合并到 Qwen-Image-2.0 单模型**[^14] |
 
 ## Infra 视角的关键差异（速览）
 

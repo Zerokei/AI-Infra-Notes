@@ -6,7 +6,7 @@ updated: 2026-05-08
 
 # DiT
 
-DiT (Diffusion Transformer) 把扩散模型里的去噪网络从 U-Net 换成 Transformer——William Peebles & Saining Xie 2022 年提出[^1]。**论文证明 Transformer 不仅能替代 U-Net，scaling 行为还更好**（同算力下越大越好），由此成为现代 T2I / T2V 主干的事实标准——FLUX、Stable Diffusion 3、[[Qwen-Image-2.0]]、Sora 都基于 DiT 思路。
+DiT (Diffusion Transformer) 是现代文生图 / 文生视频模型的去噪主干。它把扩散模型里的去噪网络从 U-Net 换成 Transformer——William Peebles & Saining Xie 2022 年提出[^1]。**论文证明 Transformer 不仅能替代 U-Net，scaling 行为还更好**（同算力下越大越好），由此成为现代 T2I / T2V 主干的事实标准——FLUX、Stable Diffusion 3、[[Qwen-Image-2.0]]、Sora 都基于 DiT 思路。
 
 ## DiT vs 传统 Diffusion
 
@@ -33,26 +33,27 @@ DiT 不是新的 diffusion 范式——**diffusion 过程本身完全没变**，
 >
 > 关键性质：(1) 比像素小很多（128×128 vs 1024×1024，~64× 算力节省）；(2) 仍保留所有人眼能感知的信息；(3) 是"机器内部语言"——你打开 latent tensor 看里面的数字什么都看不出。
 
-DiT 不直接处理像素——先用 VAE 把图像压到 latent 空间（典型 8× 压缩：1024×1024 → 128×128），DiT 在 latent 上做 N 步去噪（典型 20–50 步），最后 VAE decoder 还原回像素。
+DiT 不直接处理像素——而是在 **latent 空间**（VAE 压缩出的低分辨率"草稿空间"，典型 8× 压缩，对应 1024×1024 输出 → 128×128 latent）上做 N 步去噪（典型 20–50 步），最后 VAE decoder 把 clean latent 还原回像素。文生图推理的起点是**直接在 latent 空间采样的随机高斯噪声**——不需要任何输入图。
 
 ```mermaid
 flowchart TD
-    Img1["像素图 1024×1024"]
-    Latent["latent 128×128（含噪声）"]
+    Noise["随机噪声 latent<br/>128×128 高斯采样"]
     Tokens["4096 个 latent token"]
     Clean["clean latent"]
-    Img2["像素图 1024×1024"]
+    Img["像素图 1024×1024"]
 
     subgraph Step["每步 Transformer · ×N"]
         direction LR
         SA["self-attention<br/>4096 token"] --> CA["cross-attention<br/>with text"] --> Pred["输出 noise / v / RF"]
     end
 
-    Img1 -->|"VAE encoder 8×"| Latent
-    Latent -->|"patchify 2×2"| Tokens
+    Noise -->|"patchify 2×2"| Tokens
     Tokens --> Step --> Clean
-    Clean -->|"VAE decoder"| Img2
+    Clean -->|"VAE decoder"| Img
 ```
+
+> [!note] 训练 / 图生图场景起点不同
+> 上图是**纯文生图推理**。**训练**时起点是真实图像，VAE encoder 先压成 latent、加噪、再让 DiT 学着去噪；**图生图 / 图像编辑**（如 [[Qwen-Image-Edit]]）起点是输入图像，VAE encoder 压成 latent 后加部分噪声做去噪。这两种场景才会用到 VAE encoder，T2I 推理只用 decoder。
 
 > [!note] AdaLN-Zero：DiT 的 conditioning 巧思
 > 原 DiT 的关键贡献之一是 **AdaLN-Zero**——把 timestep + class label 通过自适应 LayerNorm 注入每一层，且初始化为零（让网络从 identity 开始训）。比 cross-attention 更高效，至今仍被 SD3 / FLUX 沿用[^1]。
