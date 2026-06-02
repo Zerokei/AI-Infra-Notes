@@ -1,7 +1,7 @@
 ---
 aliases: [索引, 目录]
 created: 2026-05-08
-updated: 2026-05-08
+updated: 2026-06-02
 ---
 
 # index
@@ -21,6 +21,7 @@ AI-Infra-Notes 全部 wiki 页面的目录，按主题分组。每条一句话�
 围绕自回归生成的算力 / 显存 / 网络瓶颈展开的优化体系。
 
 - [[LLM Inference Optimization]] —— 推理优化的总览页：Decode memory bound、Prefill flops bound，三类优化手段（缓存、减次数、调度）的导航。
+- [[nanoGPT Inference]] —— 用 nanoGPT 的最小 GPT 实现拆解自回归推理：forward、矩阵 shape、采样循环，以及无 KV Cache 的教学实现边界。
 - [[KV Cache]] —— 自回归生成的核心优化：缓存历史 token 的 K、V，把总复杂度从 $O(n^3)$ 降到 $O(n^2)$。
 - [[PagedAttention]] —— vLLM 的 KV Cache 显存管理机制，借鉴 OS 虚拟内存的分页思路，把浪费率从 60–80% 降至 4% 以下。
 
