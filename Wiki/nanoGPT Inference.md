@@ -72,6 +72,9 @@ $$
 > $$\mathrm{LN}(h)=\gamma \odot \frac{h-\mu}{\sqrt{\sigma^2+\epsilon}}+\beta$$
 > 它不混合不同 token，只规范化同一个 token 内部各维特征的尺度。
 
+![[Attachments/pics/nanogpt-layernorm-vector.png|560]]
+*图：LayerNorm 对单个 token hidden vector 做中心化和尺度归一。*
+
 ### Causal Self-Attention
 
 对单个 head，设输入为：
@@ -128,6 +131,9 @@ $$
 > $$\mathrm{softmax}(s_i)=\frac{\exp(s_i)}{\sum_j \exp(s_j)}$$
 > 在 attention 里，每一行 softmax 都表示“当前位置应该从哪些历史 token 取信息”。被 causal mask 设为 $-\infty$ 的未来位置，softmax 后权重就是 0。
 
+![[Attachments/pics/nanogpt-softmax-distribution.png|560]]
+*图：Softmax 把未归一化 logits 变成概率分布。*
+
 输出 shape 先是 $\mathbb{R}^{h \times T \times d_k}$，再 concat 回：
 
 $$
@@ -146,6 +152,9 @@ $$
 
 > [!info] GELU 的数学意义
 > GELU 可以写成 $\mathrm{GELU}(x)=x\Phi(x)$，其中 $\Phi(x)$ 是标准正态分布的 CDF。直觉上它是一个平滑 gate：大的正值大多通过，负值被压低，中间区域保留连续变化。
+
+![[Attachments/pics/nanogpt-gelu-curve.png|560]]
+*图：GELU 相比 ReLU 更平滑，负值区域不是硬截断。*
 
 按 shape 看是：
 
@@ -178,6 +187,9 @@ $$
 
 > [!info] Temperature 和 top-k 的数学意义
 > Temperature 是在 softmax 前缩放 logits：$\tau < 1$ 让分布更尖锐，$\tau > 1$ 让分布更平。top-k 则是在采样前缩小候选集合；它不改变 Transformer forward 的 hidden states，只改变最后如何从 logits 变成下一个 token。
+
+![[Attachments/pics/nanogpt-temperature-topk.png|560]]
+*图：Temperature 改变概率分布形状，top-k 直接裁掉候选 token。*
 
 ## Shape Ledger
 
