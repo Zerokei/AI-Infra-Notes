@@ -1,7 +1,7 @@
 ---
 aliases: [nanoGPT 推理]
 created: 2026-06-02
-updated: 2026-06-02
+updated: 2026-06-03
 ---
 
 # nanoGPT Inference
@@ -44,11 +44,11 @@ $$
 H^{(0)} = W_E[x_{1:T}] + W_P[1:T]
 $$
 
-带 batch 维时：
+以下 shape 都按单条序列写：
 
 $$
-x_{1:T} \in \mathbb{Z}^{B \times T}, \quad
-H^{(0)} \in \mathbb{R}^{B \times T \times d_{\text{model}}}
+x_{1:T} \in \mathbb{Z}^{T}, \quad
+H^{(0)} \in \mathbb{R}^{T \times d_{\text{model}}}
 $$
 
 nanoGPT 代码中对应 `wte(idx)`、`wpe(pos)`，二者相加后进入 $L$ 个 Transformer block[^2]。
@@ -72,7 +72,7 @@ $$
 对单个 head，设输入为：
 
 $$
-H \in \mathbb{R}^{B \times T \times d_{\text{model}}}
+H \in \mathbb{R}^{T \times d_{\text{model}}}
 $$
 
 投影得到：
@@ -85,19 +85,19 @@ $$
 
 $$
 W^Q, W^K, W^V \in \mathbb{R}^{d_{\text{model}} \times d_k}, \quad
-Q,K,V \in \mathbb{R}^{B \times T \times d_k}
+Q,K,V \in \mathbb{R}^{T \times d_k}
 $$
 
 多头形式下，nanoGPT reshape 成：
 
 $$
-Q,K,V \in \mathbb{R}^{B \times h \times T \times d_k}
+Q,K,V \in \mathbb{R}^{h \times T \times d_k}
 $$
 
 attention 分数矩阵是：
 
 $$
-\frac{QK^\top}{\sqrt{d_k}} \in \mathbb{R}^{B \times h \times T \times T}
+\frac{QK^\top}{\sqrt{d_k}} \in \mathbb{R}^{h \times T \times T}
 $$
 
 causal mask 把未来位置遮掉：
@@ -118,10 +118,10 @@ $$
 \mathrm{softmax}\left(\frac{QK^\top}{\sqrt{d_k}} + M\right)V
 $$
 
-输出 shape 先是 $\mathbb{R}^{B \times h \times T \times d_k}$，再 concat 回：
+输出 shape 先是 $\mathbb{R}^{h \times T \times d_k}$，再 concat 回：
 
 $$
-\mathbb{R}^{B \times T \times d_{\text{model}}}
+\mathbb{R}^{T \times d_{\text{model}}}
 $$
 
 这就是 residual add 能成立的维度条件：attention 输出和输入 $H$ 的 shape 相同[^4]。
@@ -137,11 +137,11 @@ $$
 按 shape 看是：
 
 $$
-\mathbb{R}^{B \times T \times d_{\text{model}}}
+\mathbb{R}^{T \times d_{\text{model}}}
 \rightarrow
-\mathbb{R}^{B \times T \times 4d_{\text{model}}}
+\mathbb{R}^{T \times 4d_{\text{model}}}
 \rightarrow
-\mathbb{R}^{B \times T \times d_{\text{model}}}
+\mathbb{R}^{T \times d_{\text{model}}}
 $$
 
 所有 block 结束后，nanoGPT 做 final LayerNorm。推理时只对最后一个位置算 LM head：
@@ -151,7 +151,7 @@ z_{T+1} = H_T^{(L)} W_U
 $$
 
 $$
-z_{T+1} \in \mathbb{R}^{B \times |\mathcal{V}|}
+z_{T+1} \in \mathbb{R}^{|\mathcal{V}|}
 $$
 
 然后：
@@ -167,14 +167,14 @@ $$
 
 | 符号 | shape | 直观含义 |
 |---|---|---|
-| $x_{1:T}$ | $B \times T$ | 当前 batch 的 token id 序列 |
-| $H^{(\ell)}$ | $B \times T \times d_{\text{model}}$ | 第 $\ell$ 层 residual stream |
-| $Q,K,V$ | $B \times h \times T \times d_k$ | 每个 head 的 query / key / value |
-| $QK^\top$ | $B \times h \times T \times T$ | 每个 token 看每个 token 的分数 |
-| $\mathrm{MHA}(H)$ | $B \times T \times d_{\text{model}}$ | attention 更新量，能加回 $H$ |
-| $\mathrm{MLP}(H)$ | $B \times T \times d_{\text{model}}$ | MLP 更新量，能加回 $H$ |
-| $H_T^{(L)}$ | $B \times d_{\text{model}}$ | 最后一个位置的 hidden state |
-| $z_{T+1}$ | $B \times |\mathcal{V}|$ | 下一个 token 的 logits |
+| $x_{1:T}$ | $T$ | 当前 token id 序列 |
+| $H^{(\ell)}$ | $T \times d_{\text{model}}$ | 第 $\ell$ 层 residual stream |
+| $Q,K,V$ | $h \times T \times d_k$ | 每个 head 的 query / key / value |
+| $QK^\top$ | $h \times T \times T$ | 每个 token 看每个 token 的分数 |
+| $\mathrm{MHA}(H)$ | $T \times d_{\text{model}}$ | attention 更新量，能加回 $H$ |
+| $\mathrm{MLP}(H)$ | $T \times d_{\text{model}}$ | MLP 更新量，能加回 $H$ |
+| $H_T^{(L)}$ | $d_{\text{model}}$ | 最后一个位置的 hidden state |
+| $z_{T+1}$ | $|\mathcal{V}|$ | 下一个 token 的 logits |
 
 ## Implementation
 
@@ -182,7 +182,7 @@ nanoGPT 的推理伪代码可以压缩成：
 
 ```python
 for _ in range(max_new_tokens):
-    x = x[:, -block_size:]
+    x = x[-block_size:]
 
     H = W_E[x] + W_P[positions]
     for block in transformer_blocks:
@@ -190,14 +190,14 @@ for _ in range(max_new_tokens):
         H = H + mlp(layer_norm_2(H))
 
     H = final_layer_norm(H)
-    z = lm_head(H[:, -1, :])
+    z = lm_head(H[-1])
 
     z = z / temperature
     z = top_k_filter(z)
     p = softmax(z)
 
     x_next = sample(p)
-    x = concat(x, x_next)
+    x = concat(x, [x_next])
 ```
 
 关键注意点：这段流程每步都重新计算当前窗口内所有 token 的 $Q,K,V$。因此它直观、短小，但没有 [[KV Cache]] 中的 prefill / decode 分离。
@@ -206,7 +206,7 @@ for _ in range(max_new_tokens):
 
 - [[Transformer]] —— nanoGPT 的模型主干来自 decoder-only Transformer
 - [[KV Cache]] —— 生产推理中避免重复计算历史 token 的核心优化
-- [[LLM Inference Optimization]] —— 从 serving 角度理解 prefill / decode、memory bound、batching
+- [[LLM Inference Optimization]] —— 从 serving 角度理解 prefill / decode、memory bound
 
 [^1]: [nanoGPT/model.py:305-330](https://github.com/karpathy/nanoGPT/blob/3adf61e154c3/model.py#L305-L330)
 [^2]: [nanoGPT/model.py:126-193](https://github.com/karpathy/nanoGPT/blob/3adf61e154c3/model.py#L126-L193)
