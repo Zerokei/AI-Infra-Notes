@@ -78,6 +78,24 @@ $$
 
 nanoGPT 的 `generate()` 每一步都会先把上下文裁到 `block_size`，再调用一次完整 `forward()`，最后对 logits 做 temperature、top-k、softmax 和 multinomial sampling[^1]。
 
+### Purpose Map
+
+如果先不看公式，可以把 nanoGPT 的一次 forward 理解成：**把 token id 翻译成向量，在 residual stream 上反复写入上下文信息和非线性特征，最后把最后一个位置的向量翻译回词表分数**。
+
+| 环节 / 函数 | 目的 | 直觉 | 输入 → 输出 |
+|---|---|---|---|
+| token embedding | 让离散 token id 变成可计算的向量 | 查字典：每个 token id 对应一个语义初始向量 | $x_{1:T} \rightarrow H_{\text{tok}}$ |
+| position embedding | 给模型注入顺序信息 | 同一个词出现在第 1 位和第 10 位，角色不一样 | $H_{\text{tok}} \rightarrow H^{(0)}$ |
+| residual stream | 保存并逐层更新每个位置的表示 | 一条主干笔记，每层 attention / MLP 都往上面追加修改 | $H^{(\ell-1)} \rightarrow H^{(\ell)}$ |
+| LayerNorm | 稳定每个 token 向量的尺度 | 先把输入整理到稳定量级，再交给下一个子层处理 | $T \times d_{\text{model}} \rightarrow T \times d_{\text{model}}$ |
+| causal self-attention | 让每个 token 从历史 token 收集信息 | 当前 token 带着 query 去看过去位置的 key/value，但不能看未来 | $H \rightarrow \mathrm{MHA}(H)$ |
+| MLP / GELU | 对每个 token 的特征做非线性加工 | attention 负责跨 token 交流，MLP 负责单个 token 内部的特征重组 | $H \rightarrow \mathrm{MLP}(H)$ |
+| LM head | 把最后位置的 hidden state 翻译成词表分数 | 从内部表示回到“下一个 token 可能是谁” | $H_T^{(L)} \rightarrow z_{T+1}$ |
+| softmax / sampling | 从分数变成实际选择 | softmax 给概率，temperature / top-k 调整抽样风格，sampling 选出 token | $z_{T+1} \rightarrow x_{T+1}$ |
+
+> [!tip] 读 GPT block 的最短心法
+> Attention 解决“这个 token 应该参考哪些历史 token”，MLP 解决“参考完以后如何改写这个 token 自己的特征”，residual connection 负责把每次改写都累积到同一条表示主干上。
+
 ### Forward Pass
 
 先把 token ids 和位置 ids 查表成向量：
