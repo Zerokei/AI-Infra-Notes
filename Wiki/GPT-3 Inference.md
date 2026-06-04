@@ -56,6 +56,9 @@ flowchart TB
 > [!note]- Notation
 > $L$ 表示 Transformer layer 数，$\ell$ 表示当前层，$T$ 表示当前上下文长度；$H^{(\ell)}$ 是第 $\ell$ 层输出的 residual stream，$h_t^{(\ell)}$ 是位置 $t$ 的 hidden state；$W_Q,W_K,W_V$ 是 attention 的线性投影矩阵，$d_k$ 是单个 head 的 key / value 维度。
 
+> [!note]- Pre-LN
+> Pre-LN 是 pre-LayerNorm / pre-normalization 的简称，意思是 LayerNorm 放在每个 sub-layer 的输入侧。若 sub-layer 记作 $F$，post-LN 写作 $\mathrm{LN}(x+F(x))$，pre-LN 写作 $x+F(\mathrm{LN}(x))$。GPT-3 论文 §2.1 说明 GPT-3 沿用 GPT-2 架构里的 pre-normalization；GPT-2 论文 §2.3 更具体地说，LayerNorm 被移到每个 sub-block 的输入侧。[^gpt3][^gpt2]
+
 > [!note]- GPT-3 Scale
 > GPT-3 论文里的 175B 模型有 96 层、$d_{\text{model}}=12288$、96 个 attention head、每个 head 维度 128；所有模型使用 2048 token 的 context window。这里的重点不是说 GPT-3 serving 实际会朴素地重算整个窗口，而是说：如果没有 KV Cache 这类增量解码机制，每生成一个 token 都重新 full forward 整个窗口，代价会非常高。[^gpt3]
 
@@ -306,3 +309,4 @@ for _ in range(max_new_tokens):
 - [[PagedAttention]] —— 生产服务中管理 KV Cache 显存碎片
 
 [^gpt3]: Brown et al. (2020). [Language Models are Few-Shot Learners](https://arxiv.org/abs/2005.14165), especially §2.1 and Table 2.1.
+[^gpt2]: Radford et al. (2019). [Language Models are Unsupervised Multitask Learners](https://cdn.openai.com/better-language-models/language_models_are_unsupervised_multitask_learners.pdf), especially §2.3.
