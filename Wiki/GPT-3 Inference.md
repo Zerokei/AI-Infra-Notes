@@ -57,7 +57,7 @@ flowchart TB
 > $L$ 表示 Transformer layer 数，$\ell$ 表示当前层，$T$ 表示当前上下文长度；$H^{(\ell)}$ 是第 $\ell$ 层输出的 residual stream，$h_t^{(\ell)}$ 是位置 $t$ 的 hidden state；$W_Q,W_K,W_V$ 是 attention 的线性投影矩阵，$d_k$ 是单个 head 的 key / value 维度。
 
 > [!note]- GPT-3 Scale
-> GPT-3 论文里的 175B 模型有 96 层、$d_{\text{model}}=12288$、96 个 attention head、每个 head 维度 128；所有模型使用 2048 token 的 context window。这个规模下，每生成一个 token 都重新 full forward 整个窗口，代价会非常高。[^gpt3]
+> GPT-3 论文里的 175B 模型有 96 层、$d_{\text{model}}=12288$、96 个 attention head、每个 head 维度 128；所有模型使用 2048 token 的 context window。这里的重点不是说 GPT-3 serving 实际会朴素地重算整个窗口，而是说：如果没有 KV Cache 这类增量解码机制，每生成一个 token 都重新 full forward 整个窗口，代价会非常高。[^gpt3]
 
 ### Prefill
 
