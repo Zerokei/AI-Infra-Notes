@@ -53,8 +53,17 @@ flowchart TB
 
 这张图和 [[nanoGPT Inference#Model Structure]] 的主干相同：input representation 进入一叠 Transformer layer，最后经 LM head 得到词表 logits。区别在于 attention sub-layer 旁边显式画出了每层的 KV Cache：每层都会把新 token 的 $K,V$ 写入缓存，并在后续 decode step 读取历史 $K,V$。
 
-> [!note]- Notation
-> $L$ 表示 Transformer layer 数，$\ell$ 表示当前层，$T$ 表示当前上下文长度；$H^{(\ell)}$ 是第 $\ell$ 层输出的 residual stream，$h_t^{(\ell)}$ 是位置 $t$ 的 hidden state；$W_Q,W_K,W_V$ 是 attention 的线性投影矩阵，$d_k$ 是单个 head 的 key / value 维度。
+图中和后文反复出现的符号可以先按这个方式读：
+
+| 符号 | 对应位置 | 含义 |
+|---|---|---|
+| $x_{1:T}$ | input tokens | 长度为 $T$ 的 token id 序列 |
+| $H^{(0)}$ | input representation | token embedding 与 position embedding 相加后的初始 residual stream |
+| $H^{(\ell)}$ | Transformer layer 输出 | 第 $\ell$ 层输出的 residual stream；$L$ 表示总层数 |
+| $h_t^{(\ell)}$ | 单个位置 | 第 $\ell$ 层、位置 $t$ 的 hidden vector |
+| $W_Q,W_K,W_V,W_O$ | Q / K / V projection 与 attention output | attention sub-layer 的线性投影矩阵 |
+| $h,d_k$ | multi-head attention | $h$ 是 head 数，$d_k$ 是单个 head 的 key / value 维度 |
+| $S_\ell(i)$ | sparse attention | GPT-3 sparse 层里，位置 $i$ 在第 $\ell$ 层允许读取的历史位置集合 |
 
 > [!note]- Pre-LN
 > Pre-LN 是 pre-LayerNorm / pre-normalization 的简称，意思是 LayerNorm 放在每个 sub-layer 的输入侧。若 sub-layer 记作 $F$，post-LN 写作 $\mathrm{LN}(x+F(x))$，pre-LN 写作 $x+F(\mathrm{LN}(x))$。GPT-3 论文 §2.1 说明 GPT-3 沿用 GPT-2 架构里的 pre-normalization；GPT-2 论文 §2.3 更具体地说，LayerNorm 被移到每个 sub-block 的输入侧。[^gpt3][^gpt2]
