@@ -1,7 +1,7 @@
 ---
 aliases: [nanoGPT 推理]
 created: 2026-06-02
-updated: 2026-06-03
+updated: 2026-06-04
 ---
 
 # nanoGPT Inference
@@ -10,21 +10,63 @@ nanoGPT Inference 是用 nanoGPT 的最小 GPT 实现来理解 decoder-only Tran
 
 ## Mechanism
 
-### Overall Flow
+### Model Structure
 
 ```mermaid
 flowchart TB
-  A["token ids<br/>x_{1:T}"] --> B["token + position embedding<br/>H^(0)"]
-  B --> C["Transformer block x L<br/>MHA + MLP + residual"]
-  C --> D["final LayerNorm"]
-  D --> E["LM head<br/>z_{T+1}"]
-  E --> F["temperature / top-k / softmax"]
-  F --> G["sample x_{T+1}"]
-  G --> H["append to context<br/>x_{1:T+1}"]
-  H -. repeat .-> A
+  classDef token fill:#fff7ed,stroke:#ea580c,color:#111827,stroke-width:1.5px;
+  classDef embed fill:#eff6ff,stroke:#2563eb,color:#111827,stroke-width:1.5px;
+  classDef pos fill:#ecfdf5,stroke:#16a34a,color:#111827,stroke-width:1.5px;
+  classDef stream fill:#ffffff,stroke:#334155,color:#111827,stroke-width:1.6px;
+  classDef norm fill:#f1f5f9,stroke:#64748b,color:#111827,stroke-width:1.4px;
+  classDef attn fill:#fef3c7,stroke:#ea580c,color:#111827,stroke-width:1.6px;
+  classDef mlp fill:#ccfbf1,stroke:#0f766e,color:#111827,stroke-width:1.6px;
+  classDef head fill:#ede9fe,stroke:#7c3aed,color:#111827,stroke-width:1.6px;
+  classDef sum fill:#ffffff,stroke:#64748b,color:#111827,stroke-width:1.5px;
+  classDef outside fill:#ffffff,stroke:#94a3b8,color:#475569,stroke-dasharray:5 5;
+
+  X["token ids<br/>x_1, ..., x_T"]:::token
+
+  subgraph EMB["Input representation"]
+    direction TB
+    WE["token embedding<br/>W_E[x_{1:T}]"]:::embed
+    WP["position embedding<br/>W_P[1:T]"]:::pos
+    ADD0(("＋")):::sum
+    H0["H^(0)<br/>T x d_model"]:::stream
+    WE --> ADD0
+    WP --> ADD0
+    ADD0 --> H0
+  end
+
+  subgraph BLOCK["Transformer block x L (pre-LN)"]
+    direction TB
+    HIN["H^(l-1)<br/>residual stream"]:::stream
+    LN1["LayerNorm 1"]:::norm
+    ATTN["masked multi-head<br/>causal self-attention"]:::attn
+    ADD1(("＋")):::sum
+    HB["Hbar^(l)<br/>T x d_model"]:::stream
+    LN2["LayerNorm 2"]:::norm
+    MLP["MLP / feed-forward<br/>Linear -> GELU -> Linear"]:::mlp
+    ADD2(("＋")):::sum
+    HOUT["H^(l)<br/>T x d_model"]:::stream
+
+    HIN --> LN1 --> ATTN --> ADD1 --> HB --> LN2 --> MLP --> ADD2 --> HOUT
+    HIN -. "skip connection" .-> ADD1
+    HB -. "skip connection" .-> ADD2
+  end
+
+  FLN["final LayerNorm<br/>LN_f(H^(L))"]:::norm
+  LM["LM head / unembedding<br/>vocab logits z_{T+1}"]:::head
+  SAMPLE["sampling<br/>outside model"]:::outside
+
+  X --> WE
+  H0 --> HIN
+  HOUT --> FLN --> LM -.-> SAMPLE
 ```
 
-推理循环可以写成：
+这张图只画一次 forward 的模型结构：token 和 position embedding 相加得到 $H^{(0)}$，随后每个 Transformer block 都在同一条 residual stream 上追加 attention 和 MLP 更新，最后通过 LM head 得到下一个 token 的 logits。
+
+自回归生成发生在模型外部，可以写成：
 
 $$
 x_{T+1} \sim p_\theta(\cdot \mid x_{1:T})
