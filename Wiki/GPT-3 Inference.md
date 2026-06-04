@@ -62,6 +62,29 @@ flowchart TB
 > [!note]- GPT-3 Scale
 > GPT-3 论文里的 175B 模型有 96 层、$d_{\text{model}}=12288$、96 个 attention head、每个 head 维度 128；所有模型使用 2048 token 的 context window。这里的重点不是说 GPT-3 serving 实际会朴素地重算整个窗口，而是说：如果没有 KV Cache 这类增量解码机制，每生成一个 token 都重新 full forward 整个窗口，代价会非常高。[^gpt3]
 
+### GPT-2 vs GPT-3 Attention
+
+GPT-3 不是只把 GPT-2 原样放大。GPT-3 论文 §2.1 说，模型主干沿用 GPT-2，但有一个明确例外：GPT-3 使用 alternating dense 和 locally banded sparse attention pattern，类似 Sparse Transformer。[^gpt3] 这意味着 GPT-3 的某些层不是让每个 token attend 到所有历史 token，而是只 attend 到一个由 sparse pattern 决定的历史位置集合。
+
+| 维度 | GPT-2-style dense causal attention | GPT-3 attention pattern |
+|---|---|---|
+| 可见位置 | 每层都可见全部历史 token | dense 层可见全部历史 token，sparse 层只可见部分历史 token |
+| attention mask | $j\le i$ | $j\in S_\ell(i)\subseteq\{1,\dots,i\}$ |
+| 主要影响 | attention 项是 $O(T^2d)$ | sparse 层降低有效 attention 计算和 KV Cache 读取范围 |
+| 不影响的部分 | 自回归方向、MLP、LayerNorm、LM head | 同左 |
+
+因此，本页前面的 dense attention 公式可以看作 baseline。若考虑 sparse attention，第 $\ell$ 层 decode 时可把 $K_{1:t}^{(\ell)},V_{1:t}^{(\ell)}$ 替换成 sparse 可见集合上的 $K_{S_\ell(t)}^{(\ell)},V_{S_\ell(t)}^{(\ell)}$：
+
+$$
+y_t^{(\ell)}
+=
+\mathrm{softmax}
+\left(
+\frac{q_t^{(\ell)} (K_{S_\ell(t)}^{(\ell)})^\top}{\sqrt{d_k}}
+\right)
+V_{S_\ell(t)}^{(\ell)}
+$$
+
 ### Prefill
 
 Prefill 是处理 prompt 的阶段。给定 prompt tokens $x_{1:T}$，模型一次 forward 整个上下文，得到每一层、每个位置的 $K,V$：
@@ -144,7 +167,7 @@ $$
 这就是 KV Cache 的核心边界：历史 token 的 $K,V$ 不变，新增 token 不会改写历史 token 的输出，所以 attention 里只计算新 token 对历史 cache 的这一行；但当前 token 自己仍然要经过所有层的 MLP。更完整的数学证明见 [[KV Cache#数学推导]]。
 
 > [!warning] Sparse Attention
-> GPT-3 论文提到使用 alternating dense 和 locally banded sparse attention pattern。上面的公式按 dense causal attention 写，是为了说明 KV Cache 的基本机制；sparse attention 会改变某些层读取哪些历史位置，但不改变“缓存历史 $K,V$、新 token 只追加自己的 $K,V$”这个推理原则。[^gpt3]
+> 上面的 decode 公式先按 dense causal attention 写，是为了说明 KV Cache 的基本机制；在 GPT-3 的 sparse attention 层里，需要把“全部历史位置”替换成 sparse pattern 允许读取的位置集合。
 
 ### KV Cache Layout
 
