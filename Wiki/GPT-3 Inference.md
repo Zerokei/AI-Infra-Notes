@@ -63,7 +63,7 @@ flowchart TB
 | $h_t^{(\ell)}$ | 单个位置 | 第 $\ell$ 层、位置 $t$ 的 hidden vector |
 | $W_Q,W_K,W_V,W_O$ | Q / K / V projection 与 attention output | attention sub-layer 的线性投影矩阵 |
 | $h,d_k$ | multi-head attention | $h$ 是 head 数，$d_k$ 是单个 head 的 key / value 维度 |
-| $S_\ell(i)$ | sparse attention | GPT-3 sparse 层里，位置 $i$ 在第 $\ell$ 层允许读取的历史位置集合 |
+| $S_\ell(i)$ | GPT-3 attention pattern | 第 $\ell$ 层位置 $i$ 允许读取的可见位置集合；dense 层为 $\{1,\dots,i\}$，sparse 层为子集 |
 
 > [!note]- Pre-LN
 > Pre-LN 是 pre-LayerNorm / pre-normalization 的简称，意思是 LayerNorm 放在每个 sub-layer 的输入侧。若 sub-layer 记作 $F$，post-LN 写作 $\mathrm{LN}(x+F(x))$，pre-LN 写作 $x+F(\mathrm{LN}(x))$。GPT-3 论文 §2.1 说明 GPT-3 沿用 GPT-2 架构里的 pre-normalization；GPT-2 论文 §2.3 更具体地说，LayerNorm 被移到每个 sub-block 的输入侧。[^gpt3][^gpt2]
@@ -73,37 +73,37 @@ flowchart TB
 
 ### GPT-2 vs GPT-3 Attention
 
-GPT-3 不是只把 GPT-2 原样放大。GPT-3 论文 §2.1 说，模型主干沿用 GPT-2，但有一个明确例外：GPT-3 使用 alternating dense 和 locally banded sparse attention pattern，类似 Sparse Transformer。[^gpt3] 这意味着 GPT-3 的某些层不是让每个 token attend 到所有历史 token，而是只 attend 到一个由 sparse pattern 决定的历史位置集合。
+GPT-3 不是只把 GPT-2 原样放大。GPT-3 论文 §2.1 说，模型主干沿用 GPT-2，但有一个明确例外：GPT-3 使用 alternating dense 和 locally banded sparse attention pattern，类似 Sparse Transformer。[^gpt3] 因此，本页后面的 attention 公式默认用 $S_\ell(i)$ 表示第 $\ell$ 层中位置 $i$ 能读取的可见位置集合。
 
 | 维度 | GPT-2-style dense causal attention | GPT-3 attention pattern |
 |---|---|---|
-| 可见位置 | 每层都可见全部历史 token | dense 层可见全部历史 token，sparse 层只可见部分历史 token |
+| 可见位置 | 每层都可见当前 token 及全部历史 token | dense 层可见完整前缀，sparse 层只可见部分前缀位置 |
 | attention mask | $j\le i$ | $j\in S_\ell(i)\subseteq\{1,\dots,i\}$ |
 | 主要影响 | attention 项是 $O(T^2d)$ | sparse 层降低有效 attention 计算和 KV Cache 读取范围 |
 | 不影响的部分 | 自回归方向、MLP、LayerNorm、LM head | 同左 |
 
-因此，本页前面的 dense attention 公式可以看作 baseline。若考虑 sparse attention，第 $\ell$ 层 decode 时可把 $K_{1:t}^{(\ell)},V_{1:t}^{(\ell)}$ 替换成 sparse 可见集合上的 $K_{S_\ell(t)}^{(\ell)},V_{S_\ell(t)}^{(\ell)}$：
-
-$$
-y_t^{(\ell)}
-=
-\mathrm{softmax}
-\left(
-\frac{q_t^{(\ell)} (K_{S_\ell(t)}^{(\ell)})^\top}{\sqrt{d_k}}
-\right)
-V_{S_\ell(t)}^{(\ell)}
-$$
+对 dense 层，$S_\ell(i)=\{1,\dots,i\}$；对 locally banded sparse 层，$S_\ell(i)$ 是 sparse pattern 允许的可见子集。GPT-3 论文没有公开 serving 侧 KV Cache 布局、kernel 或带宽参数，所以这里用 $S_\ell(i)$ 表示模型语义，不把未公开工程细节写成事实。
 
 ### Prefill
 
-Prefill 是处理 prompt 的阶段。给定 prompt tokens $x_{1:T}$，模型一次 forward 整个上下文，得到每一层、每个位置的 $K,V$：
+Prefill 是处理 prompt 的阶段。给定 prompt tokens $x_{1:T}$，模型一次 forward 整个上下文。第 $\ell$ 层先在所有位置上计算 $Q,K,V$：
 
 $$
-K_{1:T}^{(\ell)} = H^{(\ell-1)} W_K^{(\ell)}, \quad
-V_{1:T}^{(\ell)} = H^{(\ell-1)} W_V^{(\ell)}
+\bar{H}^{(\ell-1)}
+=
+\mathrm{LN}_1^{(\ell)}
+\left(
+H^{(\ell-1)}
+\right)
 $$
 
-然后写入第 $\ell$ 层的 cache：
+$$
+Q_{1:T}^{(\ell)}=\bar{H}^{(\ell-1)}W_Q^{(\ell)},\quad
+K_{1:T}^{(\ell)}=\bar{H}^{(\ell-1)}W_K^{(\ell)},\quad
+V_{1:T}^{(\ell)}=\bar{H}^{(\ell-1)}W_V^{(\ell)}
+$$
+
+然后把 $K,V$ 写入第 $\ell$ 层的 cache：
 
 $$
 \mathcal{C}^{(\ell)}
@@ -111,7 +111,19 @@ $$
 \left(K_{1:T}^{(\ell)}, V_{1:T}^{(\ell)}\right)
 $$
 
-Prefill 的设计目标是一次性建立上下文状态。它仍然要处理整个 prompt，因此适合 GPU 并行计算；但它只做一次，而不是每生成一个 token 都重算一次。
+对任意位置 $i$，attention 只读取 $S_\ell(i)$ 指定的位置：
+
+$$
+y_i^{(\ell)}
+=
+\mathrm{softmax}
+\left(
+\frac{q_i^{(\ell)}(K_{S_\ell(i)}^{(\ell)})^\top}{\sqrt{d_k}}
+\right)
+V_{S_\ell(i)}^{(\ell)}
+$$
+
+后面仍然接 attention output projection、residual、$\mathrm{LN}_2$ 和 MLP。Prefill 的设计目标是一次性建立上下文状态：它处理整个 prompt，并为后续 decode 准备每一层的 KV Cache；但它只做一次，而不是每生成一个 token 都重算一次。
 
 ### Decode With KV Cache
 
@@ -140,16 +152,16 @@ $$
 \left(K_{1:t}^{(\ell)}, V_{1:t}^{(\ell)}\right)
 $$
 
-当前 token 的 attention 只需要当前 query 和缓存中的历史 K/V：
+当前 token 的 attention 只读取 GPT-3 attention pattern 允许的位置集合 $S_\ell(t)$。dense 层中 $S_\ell(t)=\{1,\dots,t\}$；sparse 层中 $S_\ell(t)$ 是 locally banded sparse pattern 给出的子集：
 
 $$
 y_t^{(\ell)}
 =
 \mathrm{softmax}
 \left(
-\frac{q_t^{(\ell)} (K_{1:t}^{(\ell)})^\top}{\sqrt{d_k}}
+\frac{q_t^{(\ell)} (K_{S_\ell(t)}^{(\ell)})^\top}{\sqrt{d_k}}
 \right)
-V_{1:t}^{(\ell)}
+V_{S_\ell(t)}^{(\ell)}
 $$
 
 但 decode step 不是只跑 attention。KV Cache 优化的是 attention 里历史 token 的 $K,V$ 重算；当前 token 仍然要在每一层完整走过 attention sub-layer 和 MLP sub-layer。按 pre-LN 写，第 $\ell$ 层可以概括为：
@@ -173,10 +185,7 @@ h_t^{(\ell)}
 \right)
 $$
 
-这就是 KV Cache 的核心边界：历史 token 的 $K,V$ 不变，新增 token 不会改写历史 token 的输出，所以 attention 里只计算新 token 对历史 cache 的这一行；但当前 token 自己仍然要经过所有层的 MLP。更完整的数学证明见 [[KV Cache#数学推导]]。
-
-> [!warning] Sparse Attention
-> 上面的 decode 公式先按 dense causal attention 写，是为了说明 KV Cache 的基本机制；在 GPT-3 的 sparse attention 层里，需要把“全部历史位置”替换成 sparse pattern 允许读取的位置集合。
+这就是 KV Cache 的核心边界：历史 token 的 $K,V$ 不变，新增 token 不会改写历史 token 的输出，所以 attention 里只计算新 token 对 $S_\ell(t)$ 这部分可见 cache 的读取；但当前 token 自己仍然要经过所有层的 MLP。更完整的数学证明见 [[KV Cache#数学推导]]。
 
 ### KV Cache Layout
 
@@ -221,7 +230,7 @@ $$
 
 ## Complexity
 
-不考虑 batch，设 prompt 长度为 $T$，当前 decode 上下文长度为 $t$，生成 token 数为 $G$；模型有 $L$ 层，hidden size 为 $d=d_{\text{model}}$，attention head 数为 $h$，单 head 维度为 $d_k$，且 $d=h d_k$；MLP 中间维度记作 $d_{\text{ff}}$，词表大小记作 $|V|$。下面只保留主要项，embedding lookup、LayerNorm、activation、softmax 通常是较小项；空间复杂度重点看随请求长度增长的运行时状态，模型权重是固定显存成本。
+不考虑 batch，设 prompt 长度为 $T$，当前 decode 上下文长度为 $t$，生成 token 数为 $G$；模型有 $L$ 层，hidden size 为 $d=d_{\text{model}}$，attention head 数为 $h$，单 head 维度为 $d_k$，且 $d=h d_k$；MLP 中间维度记作 $d_{\text{ff}}$，词表大小记作 $|V|$。令 $m_\ell(i)=|S_\ell(i)|$，表示第 $\ell$ 层位置 $i$ 实际读取的可见位置数。下面只保留主要项，embedding lookup、LayerNorm、activation、softmax 通常是较小项；空间复杂度重点看随请求长度增长的运行时状态，模型权重是固定显存成本。
 
 ### Prefill
 
@@ -233,15 +242,22 @@ $$
 $$
 
 $$
-\text{dense causal attention}
-=O(T^2 d)
+\text{GPT-3 attention}
+=
+O\!\left(
+d\sum_{i=1}^{T}m_\ell(i)
+\right)
 $$
 
 所以 $L$ 层 prefill 的主项可以写成：
 
 $$
 O\!\left(
-L(Td^2 + T d d_{\text{ff}} + T^2 d)
+\sum_{\ell=1}^{L}
+\left(
+Td^2 + T d d_{\text{ff}}
++d\sum_{i=1}^{T}m_\ell(i)
+\right)
 \right)
 $$
 
@@ -257,14 +273,14 @@ $$
 =O(2LTd)
 $$
 
-临时空间取决于 attention kernel。朴素实现会显式形成 attention matrix，空间是 $O(hT^2)$；优化实现可以避免完整物化这个矩阵，但 KV Cache 的持久空间仍然按 $O(2LTd)$ 增长。
+临时空间取决于 attention kernel。若显式形成 attention weights，第 $\ell$ 层空间是 $O(h\sum_i m_\ell(i))$；优化实现可以避免完整物化这个矩阵，但 KV Cache 的持久空间仍然按 $O(2LTd)$ 增长。
 
 > [!note]- LM Head in Prefill
 > 如果只需要生成下一个 token，serving 阶段通常只需要最后一个位置的 logits，LM head 是 $O(d|V|)$；如果对所有 prompt 位置都计算 logits，则是 $O(Td|V|)$。
 
 ### Decode
 
-Decode 每一步只输入最新 token，但 attention 仍然要读历史 KV Cache。当前上下文长度为 $t$ 时，单层主项是：
+Decode 每一步只输入最新 token，但 attention 仍然要按 $S_\ell(t)$ 读取历史 KV Cache。当前上下文长度为 $t$ 时，第 $\ell$ 层主项是：
 
 $$
 \text{linear + MLP}
@@ -273,14 +289,17 @@ $$
 
 $$
 \text{attention over cached KV}
-=O(td)
+=O(m_\ell(t)d)
 $$
 
 因此单个 decode step 的 $L$ 层主项为：
 
 $$
 O\!\left(
-L(d^2 + d d_{\text{ff}} + td)
+\sum_{\ell=1}^{L}
+\left(
+d^2 + d d_{\text{ff}} + m_\ell(t)d
+\right)
 \right)
 $$
 
@@ -289,7 +308,7 @@ $$
 $$
 O\!\left(
 LG(d^2 + d d_{\text{ff}})
-+Ld(GT+G^2)
++d\sum_{\tau=T+1}^{T+G}\sum_{\ell=1}^{L}m_\ell(\tau)
 \right)
 $$
 
@@ -300,10 +319,9 @@ $$
 =O(2L(T+G)d)
 $$
 
-每多生成一个 token，会新增约 $2Ld$ 个 cache scalar。实际系统中，decode 经常不是单纯 FLOPs bound，而是 memory bound：每一步都要读模型权重、读历史 KV Cache、再写入新 token 的 $K,V$。
+每多生成一个 token，会新增约 $2Ld$ 个 cache scalar。实际系统中，decode 经常不是单纯 FLOPs bound，而是 memory bound：每一步都要读模型权重、按 $S_\ell(t)$ 读历史 KV Cache、再写入新 token 的 $K,V$。
 
-> [!warning] Dense Baseline
-> 上面的 $O(T^2d)$ 和 $O(td)$ 按 dense causal attention 写。GPT-3 论文提到 alternating dense 与 locally banded sparse attention；sparse pattern 会改变 attention 项的有效历史长度，但不会改变 prefill 建 cache、decode 追加 cache 的阶段划分。
+如果某层是 dense causal attention，则 $m_\ell(i)=i$，上面的 attention 项退化为常见的 $O(T^2d)$ prefill 和 $O(td)$ decode；如果某层是 locally banded sparse attention，则 $m_\ell(i)$ 小于 $i$，attention 计算和 cache 读取范围都会相应变小。
 
 ## Implementation
 
@@ -314,8 +332,9 @@ GPT-3-style 推理伪代码可以写成：
 H = token_embedding(prompt_tokens) + position_embedding(positions)
 kv_cache = []
 
-for layer in transformer_layers:
-    H, K, V = layer.prefill(H)
+for layer_id, layer in enumerate(transformer_layers):
+    visible_sets = attention_pattern(layer_id, positions)
+    H, K, V = layer.prefill(H, visible_sets)
     kv_cache.append((K, V))
 
 # decode
@@ -323,7 +342,12 @@ for _ in range(max_new_tokens):
     h = token_embedding([x_last]) + position_embedding([position])
 
     for layer_id, layer in enumerate(transformer_layers):
-        h, k_new, v_new = layer.decode_one(h, kv_cache[layer_id])
+        visible_positions = attention_pattern(layer_id, position)
+        h, k_new, v_new = layer.decode_one(
+            h,
+            kv_cache[layer_id],
+            visible_positions,
+        )
         kv_cache[layer_id].append(k_new, v_new)
 
     h = final_layer_norm(h)
@@ -331,7 +355,7 @@ for _ in range(max_new_tokens):
     x_last = sample(softmax(z / temperature))
 ```
 
-关键区别是：prefill 阶段把 prompt 的 $K,V$ 建好；decode 阶段每层只追加当前 token 的 $K,V$，然后用 cache 中的历史 $K,V$ 做 attention。
+关键区别是：prefill 阶段把 prompt 的 $K,V$ 建好；decode 阶段每层只追加当前 token 的 $K,V$，然后按该层的 GPT-3 attention pattern 从 cache 中读取可见位置。
 
 ## Related
 
