@@ -6,7 +6,7 @@ updated: 2026-06-04
 
 # nanoGPT Inference
 
-nanoGPT Inference 是用 nanoGPT 的最小 GPT 实现来理解 decoder-only Transformer 推理流程：给定当前 token 序列 $x_{1:T}$（读作“从第 1 到第 $T$ 个 token”，其中 $T$ 是当前上下文长度），模型重新 forward 当前上下文窗口，得到下一个 token 的 logits，再经过 temperature / top-k / softmax 采样，并把采样结果 append 回序列继续循环。这个实现适合学习矩阵形状与自回归生成主干，但没有 [[KV Cache]]，因此不是生产级 LLM serving 的高效实现[^1]。
+nanoGPT Inference 是用 nanoGPT 的最小 GPT 实现来理解 decoder-only Transformer 推理流程：给定当前 token 序列 $x_{1:T}$^[读作“从第 1 到第 $T$ 个 token”；$T$ 是当前上下文长度。]，模型 forward 当前上下文窗口，得到下一个 token 的 logits，再经过 temperature / top-k / softmax 采样并 append 回序列。这个实现没有 [[KV Cache]]，因此每次生成都会重新计算当前窗口，不是生产级 LLM serving 的高效实现[^1]。
 
 ## Mechanism
 
@@ -64,27 +64,22 @@ flowchart TB
   HOUT --> FLN --> LM -.-> SAMPLE
 ```
 
-这张图只画一次 forward 的模型结构：token 和 position embedding 相加得到 $H^{(0)}$，随后每个 Transformer block 都在同一条 residual stream 上追加 attention 和 MLP 更新，最后通过 LM head 得到下一个 token 的 logits。这里 $H$ 表示所有位置的 hidden states 组成的矩阵，上标 $(0)$ 表示进入第一个 Transformer block 之前。
+这张图只画一次 forward 的模型结构：embedding 得到 $H^{(0)}$^[这里 $H$ 表示所有位置的 hidden states 组成的矩阵；上标 $(0)$ 表示进入第一个 Transformer block 之前。]，$L$ 个 pre-LN Transformer block 沿 residual stream 写入 attention 和 MLP 更新，final LayerNorm 后经 LM head 得到 logits。
 
-自回归生成发生在模型外部，可以写成：
-
-$$
-x_{T+1} \sim p_\theta(\cdot \mid x_{1:T})
-$$
-
-这里 $x_{T+1}$ 是下一个 token id，$p_\theta(\cdot \mid x_{1:T})$ 是参数为 $\theta$ 的模型给出的条件概率分布，$\sim$ 表示从这个分布中采样。
+自回归生成发生在模型外部：
 
 $$
+x_{T+1} \sim p_\theta(\cdot \mid x_{1:T}), \quad
 x_{1:T+1} = (x_1, \dots, x_T, x_{T+1})
 $$
 
-这个式子表示把新采样出的 token append 到原序列末尾。
+含义是：从模型给出的下一个 token 分布中采样，再把结果接到原序列末尾。^[$x_{T+1}$ 是下一个 token id；$p_\theta(\cdot \mid x_{1:T})$ 是参数为 $\theta$ 的模型给出的条件概率分布；$\sim$ 表示采样。]
 
-nanoGPT 的 `generate()` 每一步都会先把上下文裁到 `block_size`，再调用一次完整 `forward()`，最后对 logits 做 temperature、top-k、softmax 和 multinomial sampling[^1]。严格说，forward pass 不是一个模型组件，而是从 $x_{1:T}$ 到 $z_{T+1}$ 的整条模型调用；下面按这条调用里的组件拆解。
+nanoGPT 的 `generate()` 每步会截断到 `block_size`、调用一次 `forward()`、对最后 logits 采样[^1]。严格说，forward pass 不是模型组件，而是从 $x_{1:T}$ 到 $z_{T+1}$ 的整条模型调用；下面按这条调用里的组件拆解。
 
 ### Embedding and Residual Stream
 
-先把 token ids 和位置 ids 查表成向量。token embedding 的设计目标是把离散 token id 变成可计算的连续向量；position embedding 的设计目标是给这些向量注入顺序信息，让同一个 token 出现在不同位置时有不同表示。公式里 $W_E$ 是 token embedding table，$W_P$ 是 position embedding table，方括号 $[\cdot]$ 表示按 token id 或位置编号查表取行：
+先把 token ids 和位置 ids 查表成向量。$W_E$ 是 token embedding table，$W_P$ 是 position embedding table，$[\cdot]$ 表示查表取行：
 
 $$
 H^{(0)} = W_E[x_{1:T}] + W_P[1:T]
@@ -97,11 +92,11 @@ x_{1:T} \in \mathbb{Z}^{T}, \quad
 H^{(0)} \in \mathbb{R}^{T \times d_{\text{model}}}
 $$
 
-这里 $\mathbb{Z}^{T}$ 表示长度为 $T$ 的整数序列，$\mathbb{R}^{T \times d_{\text{model}}}$ 表示有 $T$ 行、每行是 $d_{\text{model}}$ 维向量的实数矩阵；$d_{\text{model}}$ 是模型内部 hidden state 的宽度。
+$d_{\text{model}}$ 是模型内部 hidden state 的宽度。^[$\mathbb{Z}^{T}$ 表示长度为 $T$ 的整数序列；$\mathbb{R}^{T \times d_{\text{model}}}$ 表示 $T$ 行、每行 $d_{\text{model}}$ 维的实数矩阵。]
 
-nanoGPT 代码中对应 `wte(idx)`、`wpe(pos)`，二者相加后进入 $L$ 个 Transformer block，其中 $L$ 是 block 总层数[^2]。从这里开始，$H$ 可以理解成一条 residual stream：它保存每个位置当前的表示，后续 attention 和 MLP 都只是往这条主干上追加更新量。
+nanoGPT 代码中对应 `wte(idx)`、`wpe(pos)`；二者相加后进入 $L$ 个 Transformer block[^2]。从这里开始，$H$ 是 residual stream：attention 和 MLP 都只是往这条主干上追加更新量。
 
-第 $\ell$ 层 block 是 pre-LN 结构，其中 $\ell$ 是当前层编号，$\mathrm{LN}_1/\mathrm{LN}_2$ 是这个 block 里的两个 LayerNorm，$\mathrm{MHA}$ 是 multi-head attention，$\bar{H}^{(\ell)}$ 表示 attention 写入之后、MLP 写入之前的中间状态：
+第 $\ell$ 层 pre-LN block 写成：
 
 $$
 \bar{H}^{(\ell)}
@@ -113,9 +108,9 @@ H^{(\ell)}
 = \bar{H}^{(\ell)} + \mathrm{MLP}(\mathrm{LN}_2(\bar{H}^{(\ell)}))
 $$
 
-这里两个加号就是 residual connection 的设计目标：保留原来的表示，同时允许子层写入新信息。attention 负责把历史 token 的信息写进来，MLP 负责改写每个 token 自己的特征[^3]。
+两个加号就是 residual connection：保留原表示，同时允许子层写入新信息。attention 负责写入历史 token 信息，MLP 负责改写每个 token 自己的特征[^3]。^[$\ell$ 是当前层编号；$\mathrm{LN}_1/\mathrm{LN}_2$ 是两个 LayerNorm；$\mathrm{MHA}$ 是 multi-head attention；$\bar{H}^{(\ell)}$ 是 attention 后、MLP 前的中间状态。]
 
-> [!info] LayerNorm
+> [!info]- LayerNorm
 > **数学公式**：
 > $$
 > \mu=\frac{1}{d_{\text{model}}}\sum_{r=1}^{d_{\text{model}}}h_r,
@@ -136,38 +131,38 @@ $$
 
 ### Causal Self-Attention
 
-Causal self-attention 的设计目标是让每个 token 从历史 token 收集信息，同时遵守自回归约束：当前位置可以看自己和之前的位置，但不能看未来。对单个 attention head，设输入 $H$ 是当前层 LayerNorm 后的 residual stream：
+Causal self-attention 让每个位置读取自己和历史位置，同时禁止看未来。对单个 attention head，设输入为：
 
 $$
 H \in \mathbb{R}^{T \times d_{\text{model}}}
 $$
 
-投影得到 $Q,K,V$，分别叫 query、key、value。直觉上，query 表示当前位置“想找什么信息”，key 表示每个历史位置“提供什么索引”，value 表示真正会被加权汇总的内容：
+投影得到 query / key / value：
 
 $$
 Q = HW^Q,\quad K = HW^K,\quad V = HW^V
 $$
-
-这里 $W^Q,W^K,W^V$ 是三组线性投影参数，$d_k$ 是单个 head 里的向量维度：
 
 $$
 W^Q, W^K, W^V \in \mathbb{R}^{d_{\text{model}} \times d_k}, \quad
 Q,K,V \in \mathbb{R}^{T \times d_k}
 $$
 
-多头形式下，$h$ 表示 head 个数，也就是 nanoGPT 代码里的 `n_head`。nanoGPT reshape 成：
+$Q,K,V$ 分别表示“当前位置想找什么”“历史位置提供什么索引”“最终被汇总的内容”。^[$W^Q,W^K,W^V$ 是三组线性投影参数；$d_k$ 是单个 head 的向量维度。]
+
+多头时 reshape 成：
 
 $$
 Q,K,V \in \mathbb{R}^{h \times T \times d_k}
 $$
 
-每个 head 内，$QK^\top$ 的第 $(i,j)$ 个元素表示第 $i$ 个位置看第 $j$ 个位置的匹配分数，所以 attention 分数矩阵是：
+其中 $h$ 是 head 个数，即 nanoGPT 里的 `n_head`。attention 分数矩阵是：
 
 $$
 \frac{QK^\top}{\sqrt{d_k}} \in \mathbb{R}^{h \times T \times T}
 $$
 
-causal mask 把未来位置遮掉。这里 $i$ 表示当前正在更新的位置，$j$ 表示被读取的位置：
+causal mask 把未来位置遮掉：
 
 $$
 M_{ij} =
@@ -177,7 +172,7 @@ M_{ij} =
 \end{cases}
 $$
 
-所以：
+所以完整 attention 是：
 
 $$
 \mathrm{Attention}(Q,K,V)
@@ -185,7 +180,9 @@ $$
 \mathrm{softmax}\left(\frac{QK^\top}{\sqrt{d_k}} + M\right)V
 $$
 
-> [!info] Softmax
+这里 $QK^\top$ 的第 $(i,j)$ 个元素表示第 $i$ 个位置看第 $j$ 个位置的匹配分数；mask 里的 $i$ 是当前正在更新的位置，$j$ 是被读取的位置。
+
+> [!info]- Softmax
 > **数学公式**：
 > $$
 > \mathrm{softmax}(s)_i=\frac{\exp(s_i)}{\sum_{j=1}^{n}\exp(s_j)}
@@ -209,13 +206,23 @@ $$
 
 ### MLP and LM Head
 
-MLP 的设计目标是对每个 token 的特征做非线性加工。attention 负责跨 token 交流，MLP 不混合不同位置，而是在每个位置内部把特征升维、激活、再投回原维度。公式里的 $W_1$ 负责把 hidden state 从 $d_{\text{model}}$ 维升到 $4d_{\text{model}}$ 维，$W_2$ 再投回 $d_{\text{model}}$ 维[^5]：
+MLP 不混合不同位置，只在每个 token 内部做升维、激活、再降维[^5]：
 
 $$
 \mathrm{MLP}(H) = \mathrm{GELU}(H W_1) W_2
 $$
 
-> [!info] GELU
+$W_1$ 把 hidden state 从 $d_{\text{model}}$ 维升到 $4d_{\text{model}}$ 维，$W_2$ 再投回 $d_{\text{model}}$ 维：
+
+$$
+\mathbb{R}^{T \times d_{\text{model}}}
+\rightarrow
+\mathbb{R}^{T \times 4d_{\text{model}}}
+\rightarrow
+\mathbb{R}^{T \times d_{\text{model}}}
+$$
+
+> [!info]- GELU
 > **数学公式**：
 > $$
 > \mathrm{GELU}(x)=x\Phi(x)
@@ -229,27 +236,18 @@ $$
 > ![[Attachments/pics/nanogpt-gelu-curve.png|560]]
 > *图：GELU 相比 ReLU 更平滑，负值区域不是硬截断。*
 
-按 shape 看是：
-
-$$
-\mathbb{R}^{T \times d_{\text{model}}}
-\rightarrow
-\mathbb{R}^{T \times 4d_{\text{model}}}
-\rightarrow
-\mathbb{R}^{T \times d_{\text{model}}}
-$$
-
-所有 block 结束后，nanoGPT 做 final LayerNorm。推理时只对最后一个位置算 LM head；它的设计目标是把模型内部的 hidden state 翻译回词表空间，得到“下一个 token 可能是谁”的分数。这里 $H_T^{(L)}$ 是最后一层输出 $H^{(L)}$ 的第 $T$ 行，也就是最后一个位置的 hidden state；$W_U \in \mathbb{R}^{d_{\text{model}} \times |\mathcal{V}|}$ 是 unembedding / LM head 权重：
+所有 block 结束后，nanoGPT 做 final LayerNorm。推理时只取最后一个位置做 LM head，把 hidden state 投到词表空间：
 
 $$
 z_{T+1} = H_T^{(L)} W_U
 $$
 
 $$
+W_U \in \mathbb{R}^{d_{\text{model}} \times |\mathcal{V}|}, \quad
 z_{T+1} \in \mathbb{R}^{|\mathcal{V}|}
 $$
 
-这里 $\mathcal{V}$ 是词表集合，$|\mathcal{V}|$ 是词表大小；$z_{T+1}$ 是 logits 向量，其中每一维对应一个候选 token 的未归一化分数。
+$H_T^{(L)}$ 是最后一层输出的第 $T$ 行，$W_U$ 是 unembedding / LM head 权重，$|\mathcal{V}|$ 是词表大小。$z_{T+1}$ 是 logits 向量，每一维对应一个候选 token 的未归一化分数。
 
 然后：
 
@@ -258,9 +256,9 @@ p_\theta(x_{T+1} \mid x_{1:T}) =
 \mathrm{softmax}\left(\frac{z_{T+1}}{\tau}\right)
 $$
 
-其中 $\tau$ 是 temperature。softmax / sampling 的设计目标是把词表分数变成一次具体选择；top-k 会把非 top-k 的 logits 设为 $-\infty$，再进入 softmax[^1]。
+softmax / sampling 把词表分数变成一次具体选择；top-k 会把非 top-k 的 logits 设为 $-\infty$，再进入 softmax[^1]。
 
-> [!info] Temperature / top-k
+> [!info]- Temperature / top-k
 > **数学公式**：
 > $$
 > z_i' =
