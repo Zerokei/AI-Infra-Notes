@@ -120,16 +120,6 @@ $$
 
 KV Cache 优化的是 attention 里历史 token 的 $K,V$ 重算；当前 token 仍然要在每一层完整走过 LayerNorm、attention output projection、residual、MLP 等步骤。为什么历史 token 的输出不会被新 token 改写，见 [[KV Cache#数学推导]]。
 
-### Comparison With nanoGPT
-
-| 维度 | [[nanoGPT Inference]] | GPT-3-style inference |
-|---|---|---|
-| 主要目的 | 教学实现，代码短 | 大模型推理，避免重复计算 |
-| 每步输入 | 当前窗口内全部 token | decode 阶段只输入新 token |
-| 历史 $K,V$ | 每步重算 | 存在 [[KV Cache]] 中复用 |
-| 阶段划分 | 一个 `forward()` 循环 | prefill 建 cache，decode 追加 cache |
-| 主要瓶颈 | 直观但重复计算多 | decode 读权重和读 KV Cache，常见 memory bound |
-
 ## Complexity
 
 这里详细计算 prefill / decode 的主项，但不重复 [[KV Cache#数学推导]] 里的正确性证明。为保持推理主线清楚，下面按 dense causal attention 近似计算；attention pattern 的架构差异只影响 attention 项，不改变 prefill / decode 的阶段划分。
