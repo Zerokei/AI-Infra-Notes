@@ -204,7 +204,7 @@ $$
 
 这就是 residual add 能成立的维度条件：attention 输出和输入 $H$ 的 shape 相同[^4]。
 
-### MLP and LM Head
+### MLP
 
 MLP 不混合不同位置，只在每个 token 内部做升维、激活、再降维[^5]：
 
@@ -236,6 +236,8 @@ $$
 > ![[Attachments/pics/nanogpt-gelu-curve.png|560]]
 > *图：GELU 相比 ReLU 更平滑，负值区域不是硬截断。*
 
+### LM Head
+
 所有 block 结束后，nanoGPT 做 final LayerNorm。推理时只取最后一个位置做 LM head，把 hidden state 投到词表空间：
 
 $$
@@ -249,14 +251,16 @@ $$
 
 $H_T^{(L)}$ 是最后一层输出的第 $T$ 行，$W_U$ 是 unembedding / LM head 权重，$|\mathcal{V}|$ 是词表大小。$z_{T+1}$ 是 logits 向量，每一维对应一个候选 token 的未归一化分数。
 
-然后：
+### Sampling
+
+Sampling 是模型外部的解码步骤：它把 LM Head 输出的 logits 变成一个具体 token。采样分布写成：
 
 $$
 p_\theta(x_{T+1} \mid x_{1:T}) =
 \mathrm{softmax}\left(\frac{z_{T+1}}{\tau}\right)
 $$
 
-softmax / sampling 把词表分数变成一次具体选择；top-k 会把非 top-k 的 logits 设为 $-\infty$，再进入 softmax[^1]。
+其中 $\tau$ 是 temperature；top-k 会把非 top-k 的 logits 设为 $-\infty$，再进入 softmax[^1]。
 
 > [!info]- Temperature / top-k
 > **数学公式**：
