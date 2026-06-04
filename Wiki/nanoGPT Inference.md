@@ -38,7 +38,7 @@ flowchart TB
     ADD0 --> H0
   end
 
-  subgraph BLOCK["Block x L"]
+  subgraph BLOCK["Block ℓ"]
     direction TB
     HIN["$$\text{residual stream}\quad H^{(\ell-1)}$$"]:::stream
     LN1["$$\text{LayerNorm 1}\quad \mathrm{LN}_1(H^{(\ell-1)})$$"]:::norm
