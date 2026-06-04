@@ -25,12 +25,12 @@ flowchart TB
   classDef sum fill:#ffffff,stroke:#64748b,color:#111827,stroke-width:1.5px;
   classDef outside fill:#ffffff,stroke:#94a3b8,color:#475569,stroke-dasharray:5 5;
 
-  X["token ids<br/>$$x_{1:T}$$"]:::token
+  X["token ids<br/><br/>$$x_{1:T}$$"]:::token
 
   subgraph EMB["Input representation"]
     direction TB
-    WE["token embedding<br/>$$W_E[x_{1:T}]$$"]:::embed
-    WP["position embedding<br/>$$W_P[1:T]$$"]:::pos
+    WE["token embedding<br/><br/>$$W_E[x_{1:T}]$$"]:::embed
+    WP["position embedding<br/><br/>$$W_P[1:T]$$"]:::pos
     ADD0(("$$+$$")):::sum
     H0["$$H^{(0)} \in \mathbb{R}^{T \times d_{\mathrm{model}}}$$"]:::stream
     WE --> ADD0
@@ -40,12 +40,12 @@ flowchart TB
 
   subgraph BLOCK["Transformer block x L (pre-LN)"]
     direction TB
-    HIN["residual stream<br/>$$H^{(\ell-1)}$$"]:::stream
-    LN1["LayerNorm 1<br/>$$\mathrm{LN}_1(H^{(\ell-1)})$$"]:::norm
+    HIN["residual stream<br/><br/>$$H^{(\ell-1)}$$"]:::stream
+    LN1["LayerNorm 1<br/><br/>$$\mathrm{LN}_1(H^{(\ell-1)})$$"]:::norm
     ATTN["masked multi-head<br/>causal self-attention"]:::attn
     ADD1(("$$+$$")):::sum
     HB["$$\bar{H}^{(\ell)} \in \mathbb{R}^{T \times d_{\mathrm{model}}}$$"]:::stream
-    LN2["LayerNorm 2<br/>$$\mathrm{LN}_2(\bar{H}^{(\ell)})$$"]:::norm
+    LN2["LayerNorm 2<br/><br/>$$\mathrm{LN}_2(\bar{H}^{(\ell)})$$"]:::norm
     MLP["MLP / feed-forward<br/>Linear -> GELU -> Linear"]:::mlp
     ADD2(("$$+$$")):::sum
     HOUT["$$H^{(\ell)} \in \mathbb{R}^{T \times d_{\mathrm{model}}}$$"]:::stream
@@ -55,8 +55,8 @@ flowchart TB
     HB -. "skip connection" .-> ADD2
   end
 
-  FLN["final LayerNorm<br/>$$\mathrm{LN}_f(H^{(L)})$$"]:::norm
-  LM["LM head / unembedding<br/>$$z_{T+1} \in \mathbb{R}^{|\mathcal{V}|}$$"]:::head
+  FLN["final LayerNorm<br/><br/>$$\mathrm{LN}_f(H^{(L)})$$"]:::norm
+  LM["LM head / unembedding<br/><br/>$$z_{T+1} \in \mathbb{R}^{|\mathcal{V}|}$$"]:::head
   SAMPLE["sampling<br/>outside model"]:::outside
 
   X --> WE
