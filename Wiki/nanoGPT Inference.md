@@ -280,22 +280,25 @@ p_\theta(x_{T+1} \mid x_{1:T}) =
 \mathrm{softmax}\left(\frac{z_{T+1}}{\tau}\right)
 $$
 
-其中 $\tau$ 是 temperature；top-k 会把非 top-k 的 logits 设为 $-\infty$，再进入 softmax[^1]。
+其中 $\tau$ 是 temperature。nanoGPT 源码里先做 temperature scaling，再做 top-k 过滤，最后进入 softmax[^1]。
 
 > [!info]- Temperature / top-k
 > **数学公式**：
 > $$
-> z_i' =
+> u_i=\frac{z_i}{\tau}
+> $$
+> $$
+> u_i' =
 > \begin{cases}
-> z_i, & i \in \mathrm{TopK}(z,k) \\
-> -\infty, & i \notin \mathrm{TopK}(z,k)
+> u_i, & i \in \mathrm{TopK}(u,k) \\
+> -\infty, & i \notin \mathrm{TopK}(u,k)
 > \end{cases}
 > $$
 > $$
-> p_i=\frac{\exp(z_i'/\tau)}{\sum_j \exp(z_j'/\tau)}
+> p_i=\frac{\exp(u_i')}{\sum_j \exp(u_j')}
 > $$
 >
-> **公式解释**：$z_i$ 是第 $i$ 个词表项的 logit，$z_i'$ 是 top-k 过滤后的 logit，$\mathrm{TopK}(z,k)$ 返回 logits 最大的 $k$ 个词表项索引。top-k 先只保留这些候选 token，temperature $\tau$ 再控制 softmax 前的缩放强度。
+> **公式解释**：$z_i$ 是第 $i$ 个词表项的 logit，$u_i$ 是 temperature scaling 之后的 logit，$u_i'$ 是 top-k 过滤后的 logit，$\mathrm{TopK}(u,k)$ 返回最大 $k$ 个词表项索引。由于 $\tau>0$ 时 $z_i/\tau$ 是单调缩放，$\mathrm{TopK}(z,k)$ 和 $\mathrm{TopK}(z/\tau,k)$ 的候选集合相同；但 nanoGPT 源码顺序是先除以 $\tau$，再做 top-k。
 >
 > **设计目的**：控制采样行为，而不是改变 Transformer forward 的 hidden states；$\tau < 1$ 让分布更尖锐，$\tau > 1$ 让分布更平，top-k 则直接缩小候选集合。
 >
