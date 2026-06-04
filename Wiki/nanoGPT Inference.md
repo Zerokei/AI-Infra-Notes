@@ -112,7 +112,7 @@ H^{(\ell)}
 = \bar{H}^{(\ell)} + \mathrm{MLP}(\mathrm{LN}_2(\bar{H}^{(\ell)}))
 $$
 
-两个加号就是 residual connection：保留原表示，同时允许子层写入新信息。attention 负责写入历史 token 信息，MLP 负责改写每个 token 自己的特征[^3]。^[$\ell$ 是当前层编号；$\mathrm{LN}_1/\mathrm{LN}_2$ 是两个 LayerNorm；$\mathrm{MHA}$ 是 multi-head attention；$\bar{H}^{(\ell)}$ 是 attention 后、MLP 前的中间状态。]
+两个加号就是 residual connection：保留原表示，同时允许子层写入新信息。这个 layer 的两个主要子层是 attention sub-layer 和 MLP sub-layer[^3]。^[$\ell$ 是当前层编号；$\mathrm{LN}_1/\mathrm{LN}_2$ 是两个 LayerNorm；$\mathrm{MHA}$ 是 multi-head attention；$\bar{H}^{(\ell)}$ 是 attention 后、MLP 前的中间状态。]
 
 LayerNorm 1 和 LayerNorm 2 的数学操作相同，但位置不同：前者在 attention 前，后者在 MLP 前。
 
@@ -135,7 +135,7 @@ LayerNorm 1 和 LayerNorm 2 的数学操作相同，但位置不同：前者在 
 > ![[Attachments/pics/nanogpt-layernorm-vector.png|560]]
 > *图：LayerNorm 对单个 token hidden vector 做中心化和尺度归一。*
 
-### Masked Multi-Head Causal Self-Attention
+### Attention Sub-layer: Masked Multi-Head Causal Self-Attention
 
 Causal self-attention 让每个位置读取自己和历史位置，同时禁止看未来。对单个 attention head，设输入为：
 
@@ -210,7 +210,7 @@ $$
 
 这就是 residual add 能成立的维度条件：attention 输出和输入 $H$ 的 shape 相同[^4]。
 
-### MLP: Multi-Layer Perceptron
+### MLP Sub-layer: Multi-Layer Perceptron
 
 MLP 不混合不同位置，只在每个 token 内部做升维、激活、再降维[^5]：
 
