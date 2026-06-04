@@ -38,7 +38,7 @@ flowchart TB
     ADD0 --> H0
   end
 
-  subgraph BLOCK["Block ℓ"]
+  subgraph BLOCK["Transformer layer ℓ"]
     direction TB
     HIN["$$\text{residual stream}\quad H^{(\ell-1)}$$"]:::stream
     LN1["$$\text{LayerNorm 1}\quad \mathrm{LN}_1(H^{(\ell-1)})$$"]:::norm
@@ -64,7 +64,7 @@ flowchart TB
   HOUT --> FLN --> LM -.-> SAMPLE
 ```
 
-这张图只画一次 forward 的模型结构：embedding 得到 $H^{(0)}$^[这里 $H$ 表示所有位置的 hidden states 组成的矩阵；上标 $(0)$ 表示进入第一个 Transformer block 之前。]，$L$ 个 pre-LN Transformer block 沿 residual stream 写入 attention 和 MLP 更新，final LayerNorm 后经 LM head 得到 logits。
+这张图只画一次 forward 的模型结构：embedding 得到 $H^{(0)}$^[这里 $H$ 表示所有位置的 hidden states 组成的矩阵；上标 $(0)$ 表示进入第一个 Transformer layer 之前。]，$L$ 个 pre-LN Transformer layer 沿 residual stream 写入 attention 和 MLP 更新，final LayerNorm 后经 LM head 得到 logits。
 
 自回归生成发生在模型外部：
 
@@ -94,9 +94,9 @@ $$
 
 $d_{\text{model}}$ 是模型内部 hidden state 的宽度。^[$\mathbb{Z}^{T}$ 表示长度为 $T$ 的整数序列；$\mathbb{R}^{T \times d_{\text{model}}}$ 表示 $T$ 行、每行 $d_{\text{model}}$ 维的实数矩阵。]
 
-nanoGPT 代码中对应 `wte(idx)`、`wpe(pos)`；二者相加后进入 $L$ 个 Transformer block[^2]。从这里开始，$H$ 是 residual stream：attention 和 MLP 都只是往这条主干上追加更新量。
+nanoGPT 代码中对应 `wte(idx)`、`wpe(pos)`；二者相加后进入 $L$ 个 Transformer layer[^2]。从这里开始，$H$ 是 residual stream：attention 和 MLP 都只是往这条主干上追加更新量。
 
-第 $\ell$ 层 pre-LN block 写成：
+第 $\ell$ 个 pre-LN Transformer layer 写成：
 
 $$
 \bar{H}^{(\ell)}
@@ -238,7 +238,7 @@ $$
 
 ### LM Head
 
-所有 block 结束后，nanoGPT 做 final LayerNorm。推理时只取最后一个位置做 LM head，把 hidden state 投到词表空间：
+所有 Transformer layer 结束后，nanoGPT 做 final LayerNorm。推理时只取最后一个位置做 LM head，把 hidden state 投到词表空间：
 
 $$
 z_{T+1} = H_T^{(L)} W_U
@@ -292,9 +292,9 @@ for _ in range(max_new_tokens):
     x = x[-block_size:]
 
     H = W_E[x] + W_P[positions]
-    for block in transformer_blocks:
-        H = H + mha(layer_norm_1(H))
-        H = H + mlp(layer_norm_2(H))
+    for layer in transformer_layers:
+        H = H + layer.mha(layer_norm_1(H))
+        H = H + layer.mlp(layer_norm_2(H))
 
     H = final_layer_norm(H)
     z = lm_head(H[-1])
