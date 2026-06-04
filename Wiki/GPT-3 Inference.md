@@ -68,12 +68,24 @@ flowchart TB
 > [!note]- Pre-LN
 > Pre-LN 是 pre-LayerNorm / pre-normalization 的简称，意思是 LayerNorm 放在每个 sub-layer 的输入侧。若 sub-layer 记作 $F$，post-LN 写作 $\mathrm{LN}(x+F(x))$，pre-LN 写作 $x+F(\mathrm{LN}(x))$。GPT-3 论文 §2.1 说明 GPT-3 沿用 GPT-2 架构里的 pre-normalization；GPT-2 论文 §2.3 更具体地说，LayerNorm 被移到每个 sub-block 的输入侧。[^gpt3][^gpt2]
 
-> [!note]- GPT-3 Scale
-> GPT-3 论文里的 175B 模型有 96 层、$d_{\text{model}}=12288$、96 个 attention head、每个 head 维度 128；所有模型使用 2048 token 的 context window。这里的重点不是说 GPT-3 serving 实际会朴素地重算整个窗口，而是说：如果没有 KV Cache 这类增量解码机制，每生成一个 token 都重新 full forward 整个窗口，代价会非常高。[^gpt3]
-
 图中用 masked causal attention 概括 attention sub-layer。GPT-3 论文 §2.1 说，模型主干沿用 GPT-2，但 attention pattern 有一个明确例外：GPT-3 使用 alternating dense 和 locally banded sparse attention pattern，类似 Sparse Transformer。[^gpt3] 这个差异主要影响某些层能看见哪些历史位置；它不改变 decoder-only Transformer 的主干结构，也不改变 LayerNorm、MLP、LM head 等模块的角色。
 
 后文为了让复杂度计算清楚，按 dense causal attention 写公式：位置 $i$ 可以读取 $\{1,\dots,i\}$。这不是声称 GPT-3 没有 sparse attention，而是把 sparse pattern 从 prefill / decode 的常规阶段说明里拿掉。
+
+## Scale
+
+GPT-3 Inference 的重点不是模型结构新奇，而是同一套 decoder-only Transformer 放大到 GPT-3 175B 后，推理成本从“可以直观看懂的 forward” 变成“必须管理状态和带宽”的系统问题。GPT-3 175B 的公开配置是：[^gpt3]
+
+| 项 | GPT-3 175B |
+|---|---|
+| 参数量 | 175B |
+| Transformer layers $L$ | 96 |
+| hidden size $d_{\text{model}}$ | 12288 |
+| attention heads $h$ | 96 |
+| head dimension $d_k$ | 128 |
+| context window | 2048 tokens |
+
+这些数字直接进入后面的复杂度公式：$L$ 放大每一层开销，$d$ 和 $d_{\text{ff}}$ 放大 projection / MLP，$T$ 或 $t$ 放大 attention 和 KV Cache。换句话说，GPT-3 和 nanoGPT 在结构图上很像；真正改变推理工程问题的是规模。
 
 ## Complexity
 
