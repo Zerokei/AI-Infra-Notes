@@ -6,7 +6,7 @@ updated: 2026-06-04
 
 # GPT-3 Inference
 
-GPT-3 Inference 是以 GPT-3 这种大规模 decoder-only Transformer 为例，说明自回归推理如何从 [[nanoGPT Inference]] 里的教学式 full forward，过渡到生产推理更常见的 prefill / decode 两阶段。[[KV Cache]] 在本页只作为 GPT-3 规模下必须引入的推理状态；数学证明和缓存内容放在 [[KV Cache]]。GPT-3 论文公开的是模型架构和评估方式，而不是 OpenAI 的 serving 实现；本页讨论的是 GPT-3 架构自然导出的推理机制。[^gpt3]
+GPT-3 Inference 不是一套全新的模型流程，而是把 [[nanoGPT Inference]] 里同类 decoder-only Transformer 放大到 GPT-3 175B 后，推理成本如何变化的问题。结构图仍然很像；差异主要来自规模、GPT-3 的 sparse attention pattern，以及大规模生成时必须显式管理的 [[KV Cache]]。GPT-3 论文公开的是模型架构和评估方式，而不是 OpenAI 的 serving 实现；本页只讨论由公开架构自然导出的推理视角。[^gpt3]
 
 ## Mechanism
 
@@ -51,70 +51,51 @@ flowchart TB
   HOUT --> FLN --> LM --> SAMPLE
 ```
 
-这张图和 [[nanoGPT Inference#Model Structure]] 的主干相同：input representation 进入一叠 Transformer layer，最后经 LM head 得到词表 logits。区别在于 attention sub-layer 旁边显式画出了每层的 KV Cache：每层都会把新 token 的 $K,V$ 写入缓存，并在后续 decode step 读取历史 $K,V$。
+这张图刻意和 [[nanoGPT Inference#Model Structure]] 保持同一主干：input representation 进入多层 Transformer，最后经 LM head 得到词表 logits。GPT-3 推理真正多出来的重点，是 attention 旁边那份逐层增长的 KV Cache：新 token 写入自己的 $K,V$，后续 token 读取历史 $K,V$。
 
-图中和后文反复出现的符号可以先按这个方式读：
-
-| 符号 | 对应位置 | 含义 |
-|---|---|---|
-| $x_{1:T}$ | input tokens | 长度为 $T$ 的 token id 序列 |
-| $H^{(0)}$ | input representation | token embedding 与 position embedding 相加后的初始 residual stream |
-| $H^{(\ell)}$ | Transformer layer 输出 | 第 $\ell$ 层输出的 residual stream；$L$ 表示总层数 |
-| $h_t^{(\ell)}$ | 单个位置 | 第 $\ell$ 层、位置 $t$ 的 hidden vector |
-| $W_Q,W_K,W_V$ | Q / K / V projection | 把 hidden vector 投影成 query、key、value |
-| $W_O$ | attention output projection | 把 attention 得到的向量投影回 residual stream；代码里常叫 `c_proj` 或 `out_proj` |
-| $h,d_k$ | multi-head attention | $h$ 是 head 数，$d_k$ 是单个 head 的 key / value 维度 |
+GPT-3 的架构差异也集中在 attention pattern。GPT-3 论文 §2.1 说，模型主干沿用 GPT-2，但 attention pattern 有一个明确例外：GPT-3 使用 alternating dense 和 locally banded sparse attention pattern，类似 Sparse Transformer。[^gpt3] 这会改变某些层能看见哪些历史位置；它不改变 LayerNorm、MLP、LM head 等模块的角色。
 
 > [!note]- Pre-LN
-> Pre-LN 是 pre-LayerNorm / pre-normalization 的简称，意思是 LayerNorm 放在每个 sub-layer 的输入侧。若 sub-layer 记作 $F$，post-LN 写作 $\mathrm{LN}(x+F(x))$，pre-LN 写作 $x+F(\mathrm{LN}(x))$。GPT-3 论文 §2.1 说明 GPT-3 沿用 GPT-2 架构里的 pre-normalization；GPT-2 论文 §2.3 更具体地说，LayerNorm 被移到每个 sub-block 的输入侧。[^gpt3][^gpt2]
+> GPT-3 沿用 GPT-2 的 pre-normalization：LayerNorm 放在每个 sub-layer 的输入侧。若 sub-layer 记作 $F$，post-LN 写作 $\mathrm{LN}(x+F(x))$，pre-LN 写作 $x+F(\mathrm{LN}(x))$。[^gpt3][^gpt2]
 
-图中用 masked causal attention 概括 attention sub-layer。GPT-3 论文 §2.1 说，模型主干沿用 GPT-2，但 attention pattern 有一个明确例外：GPT-3 使用 alternating dense 和 locally banded sparse attention pattern，类似 Sparse Transformer。[^gpt3] 这个差异主要影响某些层能看见哪些历史位置；它不改变 decoder-only Transformer 的主干结构，也不改变 LayerNorm、MLP、LM head 等模块的角色。
-
-后文为了让复杂度计算清楚，按 dense causal attention 写公式：位置 $i$ 可以读取 $\{1,\dots,i\}$。这不是声称 GPT-3 没有 sparse attention，而是把 sparse pattern 从 prefill / decode 的常规阶段说明里拿掉。
+复杂度部分按 dense causal attention 写公式：位置 $i$ 可以读取 $\{1,\dots,i\}$。这不是声称 GPT-3 没有 sparse attention，而是把 sparse pattern 从 prefill / decode 的常规阶段说明里拿掉。
 
 ## Scale
 
-GPT-3 Inference 的重点不是模型结构新奇，而是同一套 decoder-only Transformer 放大到 GPT-3 175B 后，推理成本从“可以直观看懂的 forward” 变成“必须管理状态和带宽”的系统问题。GPT-3 175B 的公开配置是：[^gpt3]
+GPT-3 和 nanoGPT 的结构相似，但数量级不同。GPT-3 175B 的公开配置直接决定了推理成本的主项：[^gpt3]
 
-| 项 | GPT-3 175B |
-|---|---|
-| 参数量 | 175B |
-| Transformer layers $L$ | 96 |
-| hidden size $d_{\text{model}}$ | 12288 |
-| attention heads $h$ | 96 |
-| head dimension $d_k$ | 128 |
-| context window | 2048 tokens |
+| 维度 | GPT-3 175B | 推理含义 |
+|---|---:|---|
+| 参数量 | 175B | 权重本身就是主要显存和带宽压力 |
+| Transformer layers $L$ | 96 | 每个 token 都要穿过 96 层 |
+| hidden size $d_{\text{model}}$ | 12288 | projection 和 MLP 的矩阵乘法变重 |
+| attention heads $h$ | 96 | 每层要维护多组 $K,V$ |
+| head dimension $d_k$ | 128 | 单层 KV Cache 形状由 $h\times T\times d_k$ 决定 |
+| context window | 2048 tokens | attention 与 KV Cache 都随上下文长度增长 |
 
-这些数字直接进入后面的复杂度公式：$L$ 放大每一层开销，$d$ 和 $d_{\text{ff}}$ 放大 projection / MLP，$T$ 或 $t$ 放大 attention 和 KV Cache。换句话说，GPT-3 和 nanoGPT 在结构图上很像；真正改变推理工程问题的是规模。
+所以这页的核心不是“GPT-3 比 nanoGPT 多了哪些模块”，而是“相同模块在 GPT-3 规模下会把哪些成本放大到必须优化”。
 
 ## Complexity
 
-这里详细计算 prefill / decode 的主项，但不重复 [[KV Cache#数学推导]] 里的正确性证明。为保持推理主线清楚，下面按 dense causal attention 近似计算；attention pattern 的架构差异只影响 attention 项，不改变 prefill / decode 的阶段划分。
+下面只计算 prefill / decode 的主项，不重复 [[KV Cache#数学推导]] 里的正确性证明。为保持公式可读，先按 dense causal attention 近似；GPT-3 的 sparse attention pattern 只会影响 attention 项的有效范围，不改变阶段划分。
 
 ### Symbols
 
-不考虑 batch，设 prompt 长度为 $T$，当前 decode 上下文长度为 $t$，生成 token 数为 $G$；模型有 $L$ 层，hidden size 为 $d=d_{\text{model}}$，attention head 数为 $h$，单 head 维度为 $d_k$，且 $d=h d_k$；MLP 中间维度记作 $d_{\text{ff}}$，词表大小记作 $|\mathcal{V}|$。下面忽略 embedding lookup、LayerNorm、activation、softmax 等较小项；模型权重是固定显存成本，KV Cache 是随请求长度增长的运行时状态。
+不考虑 batch。设 prompt 长度为 $T$，当前 decode 上下文长度为 $t$，生成 token 数为 $G$；模型有 $L$ 层，hidden size 为 $d=d_{\text{model}}$，head 数为 $h$，单 head 维度为 $d_k$，且 $d=h d_k$。MLP 中间维度记作 $d_{\text{ff}}$，词表大小记作 $|\mathcal{V}|$。
+
+下面忽略 embedding lookup、LayerNorm、activation、softmax 等较小项。模型权重是固定显存成本；KV Cache 是随请求长度增长的运行时状态。
 
 ### Prefill Complexity
 
-Prefill 一次处理整个 prompt $x_{1:T}$。单层主要计算项是：
+Prefill 一次处理整个 prompt $x_{1:T}$，并为每层写入初始 KV Cache。单层主项是：
 
-$$
-\text{QKV + output projection}
-=O(Td^2)
-$$
+| 计算项 | 复杂度 | 来源 |
+|---|---:|---|
+| QKV + output projection | $O(Td^2)$ | 每个位置做线性投影 |
+| MLP | $O(Td d_{\text{ff}})$ | 每个位置过两层 feed-forward |
+| attention scores + value aggregation | $O(T^2d)$ | $QK^\top$ 和 attention weights 乘 $V$ |
 
-$$
-\text{MLP}
-=O(Td d_{\text{ff}})
-$$
-
-$$
-\text{attention scores + value aggregation}
-=O(T^2d)
-$$
-
-其中 attention 项来自 $QK^\top$ 和 attention weights 乘 $V$：每个 head 约是 $O(T^2d_k)$，$h$ 个 head 合起来是 $O(T^2 h d_k)=O(T^2d)$。
+attention 项的维度来源是：每个 head 约为 $O(T^2d_k)$，$h$ 个 head 合起来是 $O(T^2 h d_k)=O(T^2d)$。
 
 因此 $L$ 层 prefill 的主项是：
 
@@ -138,29 +119,20 @@ $$
 =O(2LTd)
 $$
 
-朴素 attention 若显式保存 attention matrix，临时空间是 $O(hT^2)$；优化 attention kernel 可以避免完整物化这个矩阵，但 KV Cache 的持久空间仍随 $T$ 线性增长。
+如果朴素显式保存 attention matrix，单层临时空间是 $O(hT^2)$。优化 attention kernel 可以避免完整物化这个矩阵，但 KV Cache 的持久空间仍随 $T$ 线性增长。
 
 > [!note]- LM Head in Prefill
 > 如果 serving 只需要下一个 token 的 logits，通常只取最后一个位置过 LM head，开销是 $O(d|\mathcal{V}|)$；如果对所有 prompt 位置都算 logits，则是 $O(Td|\mathcal{V}|)$。
 
 ### Decode Complexity
 
-Decode 每一步只输入最新 token。当前上下文长度为 $t$ 时，单层主要计算项是：
+Decode 每一步只输入最新 token。当前上下文长度为 $t$ 时，单层主项是：
 
-$$
-\text{QKV + output projection}
-=O(d^2)
-$$
-
-$$
-\text{MLP}
-=O(d d_{\text{ff}})
-$$
-
-$$
-\text{attention over cached KV}
-=O(td)
-$$
+| 计算项 | 复杂度 | 来源 |
+|---|---:|---|
+| QKV + output projection | $O(d^2)$ | 当前 token 的线性投影 |
+| MLP | $O(d d_{\text{ff}})$ | 当前 token 的 feed-forward |
+| attention over cached KV | $O(td)$ | 当前 query 读取长度为 $t$ 的历史 $K,V$ |
 
 所以单个 decode step 的 $L$ 层主项是：
 
@@ -170,7 +142,7 @@ L(d^2 + d d_{\text{ff}} + td)
 \right)
 $$
 
-如果从长度 $T$ 的 prompt 开始连续生成 $G$ 个 token，decode 总时间主项可以写成：
+从长度 $T$ 的 prompt 开始连续生成 $G$ 个 token，总时间主项是：
 
 $$
 O\!\left(
@@ -179,14 +151,14 @@ LG(d^2+d d_{\text{ff}})
 \right)
 $$
 
-前半项是每个新 token 都要重新经过所有层的 projection 和 MLP；后半项来自 attention 逐步读取越来越长的 KV Cache。Decode 的持久空间是在已有 cache 后继续追加：
+前半项是每个新 token 都要经过所有层的 projection 和 MLP；后半项来自 attention 读取越来越长的 KV Cache。Decode 的持久空间是在已有 cache 后继续追加：
 
 $$
 \text{KV cache scalars after } G \text{ tokens}
 =O(2L(T+G)d)
 $$
 
-这也是为什么 decode 常被说成 memory bound：每一步的 batch 内 token 数很小，但要反复读模型权重、读历史 KV Cache，并写入新的 $K,V$。更系统的瓶颈讨论见 [[LLM Inference Optimization]]。
+这解释了为什么 decode 常被说成 memory bound：每一步只处理少量 token，却要反复读模型权重、读历史 KV Cache，并写入新的 $K,V$。更系统的瓶颈讨论见 [[LLM Inference Optimization]]。
 
 ## Related
 
