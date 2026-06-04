@@ -76,7 +76,7 @@ $$
 x_{1:T+1} = (x_1, \dots, x_T, x_{T+1})
 $$
 
-nanoGPT 的 `generate()` 每一步都会先把上下文裁到 `block_size`，再调用一次完整 `forward()`，最后对 logits 做 temperature、top-k、softmax 和 multinomial sampling[^1]。
+nanoGPT 的 `generate()` 每一步都会先把上下文裁到 `block_size`，再调用一次完整 `forward()`，最后对 logits 做 temperature、top-k、softmax 和 multinomial sampling[^1]。严格说，forward pass 不是一个模型组件，而是从 $x_{1:T}$ 到 $z_{T+1}$ 的整条模型调用；下面按这条调用里的组件拆解。
 
 ### Purpose Map
 
@@ -96,7 +96,7 @@ nanoGPT 的 `generate()` 每一步都会先把上下文裁到 `block_size`，再
 > [!tip] 读 GPT block 的最短心法
 > Attention 解决“这个 token 应该参考哪些历史 token”，MLP 解决“参考完以后如何改写这个 token 自己的特征”，residual connection 负责把每次改写都累积到同一条表示主干上。
 
-### Forward Pass
+### Embedding and Residual Stream
 
 先把 token ids 和位置 ids 查表成向量：
 
