@@ -273,19 +273,6 @@ $$
 > ![[Attachments/pics/nanogpt-temperature-topk.png|560]]
 > *图：Temperature 改变概率分布形状，top-k 直接裁掉候选 token。*
 
-## Shape Ledger
-
-| 符号 | shape | 直观含义 |
-|---|---|---|
-| $x_{1:T}$ | $T$ | 当前 token id 序列 |
-| $H^{(\ell)}$ | $T \times d_{\text{model}}$ | 第 $\ell$ 层 residual stream |
-| $Q,K,V$ | $h \times T \times d_k$ | 每个 head 的 query / key / value |
-| $QK^\top$ | $h \times T \times T$ | 每个 token 看每个 token 的分数 |
-| $\mathrm{MHA}(H)$ | $T \times d_{\text{model}}$ | attention 更新量，能加回 $H$ |
-| $\mathrm{MLP}(H)$ | $T \times d_{\text{model}}$ | MLP 更新量，能加回 $H$ |
-| $H_T^{(L)}$ | $d_{\text{model}}$ | 最后一个位置的 hidden state |
-| $z_{T+1}$ | $|\mathcal{V}|$ | 下一个 token 的 logits |
-
 ## Implementation
 
 nanoGPT 的推理伪代码可以压缩成：
