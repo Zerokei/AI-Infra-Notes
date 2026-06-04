@@ -64,7 +64,7 @@ flowchart TB
   HOUT --> FLN --> LM -.-> SAMPLE
 ```
 
-这张图只画一次 forward 的模型结构：embedding 得到 $H^{(0)}$^[这里 $H$ 表示所有位置的 hidden states 组成的矩阵；上标 $(0)$ 表示进入第一个 Transformer layer 之前。]，$L$ 个 pre-LN Transformer layer 沿 residual stream 写入 attention 和 MLP 更新，final LayerNorm 后经 LM head 得到 logits。
+这张图只画一次 forward 的模型结构：embedding 得到 $H^{(0)}$^[这里 $H$ 表示所有位置的 hidden states 组成的矩阵；上标 $(0)$ 表示进入第一个 Transformer layer 之前。]，$L$ 个 pre-LN Transformer layer 沿 residual stream 写入 attention 和 MLP 更新，final LayerNorm 后经 LM head 得到 logits。图里的主要节点顺序对应下面的小节标题。
 
 自回归生成发生在模型外部：
 
@@ -75,9 +75,9 @@ $$
 
 含义是：从模型给出的下一个 token 分布中采样，再把结果接到原序列末尾。^[$x_{T+1}$ 是下一个 token id；$p_\theta(\cdot \mid x_{1:T})$ 是参数为 $\theta$ 的模型给出的条件概率分布；$\sim$ 表示采样。]
 
-nanoGPT 的 `generate()` 每步会截断到 `block_size`、调用一次 `forward()`、对最后 logits 采样[^1]。严格说，forward pass 不是模型组件，而是从 $x_{1:T}$ 到 $z_{T+1}$ 的整条模型调用；下面按这条调用里的组件拆解。
+nanoGPT 的 `generate()` 每步会截断到 `block_size`、调用一次 `forward()`、对最后 logits 采样[^1]。严格说，forward pass 不是模型组件，而是从 $x_{1:T}$ 到 $z_{T+1}$ 的整条模型调用；下面小节按图中节点顺序拆解。
 
-### Embedding and Residual Stream
+### Input Representation
 
 先把 token ids 和位置 ids 查表成向量。$W_E$ 是 token embedding table，$W_P$ 是 position embedding table，$[\cdot]$ 表示查表取行：
 
@@ -94,7 +94,11 @@ $$
 
 $d_{\text{model}}$ 是模型内部 hidden state 的宽度。^[$\mathbb{Z}^{T}$ 表示长度为 $T$ 的整数序列；$\mathbb{R}^{T \times d_{\text{model}}}$ 表示 $T$ 行、每行 $d_{\text{model}}$ 维的实数矩阵。]
 
-nanoGPT 代码中对应 `wte(idx)`、`wpe(pos)`；二者相加后进入 $L$ 个 Transformer layer[^2]。从这里开始，$H$ 是 residual stream：attention 和 MLP 都只是往这条主干上追加更新量。
+nanoGPT 代码中对应 `wte(idx)`、`wpe(pos)`；二者相加后进入 $L$ 个 Transformer layer[^2]。
+
+### Transformer Layer ℓ
+
+从这里开始，$H$ 是 residual stream：attention 和 MLP 都只是往这条主干上追加更新量。
 
 第 $\ell$ 个 pre-LN Transformer layer 写成：
 
@@ -109,6 +113,10 @@ H^{(\ell)}
 $$
 
 两个加号就是 residual connection：保留原表示，同时允许子层写入新信息。attention 负责写入历史 token 信息，MLP 负责改写每个 token 自己的特征[^3]。^[$\ell$ 是当前层编号；$\mathrm{LN}_1/\mathrm{LN}_2$ 是两个 LayerNorm；$\mathrm{MHA}$ 是 multi-head attention；$\bar{H}^{(\ell)}$ 是 attention 后、MLP 前的中间状态。]
+
+### LayerNorm 1 / LayerNorm 2
+
+LayerNorm 1 和 LayerNorm 2 的数学操作相同，但位置不同：前者在 attention 前，后者在 MLP 前。
 
 > [!info]- LayerNorm
 > **数学公式**：
@@ -129,7 +137,7 @@ $$
 > ![[Attachments/pics/nanogpt-layernorm-vector.png|560]]
 > *图：LayerNorm 对单个 token hidden vector 做中心化和尺度归一。*
 
-### Causal Self-Attention
+### Masked Multi-Head Causal Self-Attention
 
 Causal self-attention 让每个位置读取自己和历史位置，同时禁止看未来。对单个 attention head，设输入为：
 
@@ -236,12 +244,20 @@ $$
 > ![[Attachments/pics/nanogpt-gelu-curve.png|560]]
 > *图：GELU 相比 ReLU 更平滑，负值区域不是硬截断。*
 
-### LM Head
+### Final LayerNorm
 
-所有 Transformer layer 结束后，nanoGPT 做 final LayerNorm。推理时只取最后一个位置做 LM head，把 hidden state 投到词表空间：
+所有 Transformer layer 结束后，nanoGPT 做 final LayerNorm，把最终 residual stream 再规范化一次：
 
 $$
-z_{T+1} = H_T^{(L)} W_U
+\tilde{H}^{(L)} = \mathrm{LN}_f(H^{(L)})
+$$
+
+### LM Head / Unembedding
+
+推理时只取最后一个位置做 LM head，把 hidden state 投到词表空间：
+
+$$
+z_{T+1} = \tilde{H}_T^{(L)} W_U
 $$
 
 $$
@@ -249,7 +265,7 @@ W_U \in \mathbb{R}^{d_{\text{model}} \times |\mathcal{V}|}, \quad
 z_{T+1} \in \mathbb{R}^{|\mathcal{V}|}
 $$
 
-$H_T^{(L)}$ 是最后一层输出的第 $T$ 行，$W_U$ 是 unembedding / LM head 权重，$|\mathcal{V}|$ 是词表大小。$z_{T+1}$ 是 logits 向量，每一维对应一个候选 token 的未归一化分数。
+$\tilde{H}_T^{(L)}$ 是 final LayerNorm 后第 $T$ 行 hidden state，$W_U$ 是 unembedding / LM head 权重，$|\mathcal{V}|$ 是词表大小。$z_{T+1}$ 是 logits 向量，每一维对应一个候选 token 的未归一化分数。
 
 ### Sampling
 
