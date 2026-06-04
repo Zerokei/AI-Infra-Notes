@@ -132,14 +132,104 @@ KV Cache 优化的是 attention 里历史 token 的 $K,V$ 重算；当前 token 
 
 ## Complexity
 
-本页只保留阶段性判断，避免和 [[KV Cache]] / [[LLM Inference Optimization]] 重复。
+这里详细计算 prefill / decode 的主项，但不重复 [[KV Cache#数学推导]] 里的正确性证明。为保持推理主线清楚，下面按 dense causal attention 近似计算；attention pattern 的架构差异只影响 attention 项，不改变 prefill / decode 的阶段划分。
 
-| 阶段 | 输入规模 | 主要工作 | 典型瓶颈 |
-|---|---|---|---|
-| Prefill | 整个 prompt | 一次性建立所有层的上下文表示和初始 KV Cache | 大矩阵乘法多，适合并行，通常更偏 compute-heavy |
-| Decode | 每次 1 个新 token | 追加当前 token 的 $K,V$，读取历史 KV Cache，产生下一个 token logits | 逐 token 串行，频繁读权重和 KV Cache，容易 memory bound |
+### Symbols
 
-复杂度证明与缓存显存公式放在 [[KV Cache]]；prefill / decode 的系统瓶颈放在 [[LLM Inference Optimization]]。
+不考虑 batch，设 prompt 长度为 $T$，当前 decode 上下文长度为 $t$，生成 token 数为 $G$；模型有 $L$ 层，hidden size 为 $d=d_{\text{model}}$，attention head 数为 $h$，单 head 维度为 $d_k$，且 $d=h d_k$；MLP 中间维度记作 $d_{\text{ff}}$，词表大小记作 $|\mathcal{V}|$。下面忽略 embedding lookup、LayerNorm、activation、softmax 等较小项；模型权重是固定显存成本，KV Cache 是随请求长度增长的运行时状态。
+
+### Prefill Complexity
+
+Prefill 一次处理整个 prompt $x_{1:T}$。单层主要计算项是：
+
+$$
+\text{QKV + output projection}
+=O(Td^2)
+$$
+
+$$
+\text{MLP}
+=O(Td d_{\text{ff}})
+$$
+
+$$
+\text{attention scores + value aggregation}
+=O(T^2d)
+$$
+
+其中 attention 项来自 $QK^\top$ 和 attention weights 乘 $V$：每个 head 约是 $O(T^2d_k)$，$h$ 个 head 合起来是 $O(T^2 h d_k)=O(T^2d)$。
+
+因此 $L$ 层 prefill 的主项是：
+
+$$
+O\!\left(
+L(Td^2 + T d d_{\text{ff}} + T^2d)
+\right)
+$$
+
+Prefill 结束后会形成初始 KV Cache：
+
+$$
+K^{(\ell)},V^{(\ell)}
+\in
+\mathbb{R}^{h\times T\times d_k}
+$$
+
+$$
+\text{KV cache scalars}
+=O(2LThd_k)
+=O(2LTd)
+$$
+
+朴素 attention 若显式保存 attention matrix，临时空间是 $O(hT^2)$；优化 attention kernel 可以避免完整物化这个矩阵，但 KV Cache 的持久空间仍随 $T$ 线性增长。
+
+> [!note]- LM Head in Prefill
+> 如果 serving 只需要下一个 token 的 logits，通常只取最后一个位置过 LM head，开销是 $O(d|\mathcal{V}|)$；如果对所有 prompt 位置都算 logits，则是 $O(Td|\mathcal{V}|)$。
+
+### Decode Complexity
+
+Decode 每一步只输入最新 token。当前上下文长度为 $t$ 时，单层主要计算项是：
+
+$$
+\text{QKV + output projection}
+=O(d^2)
+$$
+
+$$
+\text{MLP}
+=O(d d_{\text{ff}})
+$$
+
+$$
+\text{attention over cached KV}
+=O(td)
+$$
+
+所以单个 decode step 的 $L$ 层主项是：
+
+$$
+O\!\left(
+L(d^2 + d d_{\text{ff}} + td)
+\right)
+$$
+
+如果从长度 $T$ 的 prompt 开始连续生成 $G$ 个 token，decode 总时间主项可以写成：
+
+$$
+O\!\left(
+LG(d^2+d d_{\text{ff}})
++Ld(GT+G^2)
+\right)
+$$
+
+前半项是每个新 token 都要重新经过所有层的 projection 和 MLP；后半项来自 attention 逐步读取越来越长的 KV Cache。Decode 的持久空间是在已有 cache 后继续追加：
+
+$$
+\text{KV cache scalars after } G \text{ tokens}
+=O(2L(T+G)d)
+$$
+
+这也是为什么 decode 常被说成 memory bound：每一步的 batch 内 token 数很小，但要反复读模型权重、读历史 KV Cache，并写入新的 $K,V$。更系统的瓶颈讨论见 [[LLM Inference Optimization]]。
 
 ## Related
 
