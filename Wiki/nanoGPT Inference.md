@@ -311,41 +311,55 @@ $$
 nanoGPT 的推理伪代码可以压缩成：
 
 ```python
-for _ in range(max_new_tokens):
-    x = x[-block_size:]
+def masked_mha(H, layer):
+    U = layer.ln_1(H)
+    Q, K, V = split(layer.attn.c_attn(U), parts=3)
+    Q, K, V = reshape_to_heads(Q, K, V)
 
+    S = (Q @ transpose(K)) / sqrt(d_k)
+    S = causal_mask(S)
+    P = softmax(S)
+
+    A = P @ V
+    A = concat_heads(A)
+    return layer.attn.c_proj(A)
+
+
+def mlp(H, layer):
+    U = layer.ln_2(H)
+    M = gelu(layer.mlp.c_fc(U))
+    return layer.mlp.c_proj(M)
+
+
+def transformer_block(H, layer):
+    H = H + masked_mha(H, layer)
+    H = H + mlp(H, layer)
+    return H
+
+
+def forward(x):
     H = W_E[x] + W_P[positions]
-
     for layer in transformer_layers:
-        # masked multi-head causal self-attention
-        U = layer_norm_1(H)
-        Q, K, V = split(layer.attn.c_attn(U), parts=3)
-        Q, K, V = reshape_to_heads(Q, K, V)
-
-        S = (Q @ transpose(K)) / sqrt(d_k)
-        S = causal_mask(S)
-        P = softmax(S)
-
-        A = P @ V
-        A = concat_heads(A)
-        O = layer.attn.c_proj(A)
-        H = H + O
-
-        # MLP
-        U = layer_norm_2(H)
-        M = gelu(layer.mlp.c_fc(U))
-        M = layer.mlp.c_proj(M)
-        H = H + M
+        H = transformer_block(H, layer)
 
     H = final_layer_norm(H)
-    z = lm_head(H[-1])
+    return lm_head(H[-1])
 
+
+def sample_next(z):
     z = z / temperature
     z = top_k_filter(z)
     p = softmax(z)
+    return sample(p)
 
-    x_next = sample(p)
-    x = concat(x, [x_next])
+
+def generate(x):
+    for _ in range(max_new_tokens):
+        x_cond = x[-block_size:]
+        z = forward(x_cond)
+        x_next = sample_next(z)
+        x = concat(x, [x_next])
+    return x
 ```
 
 关键注意点：这段流程每步都重新计算当前窗口内所有 token 的 $Q,K,V$，并且 attention 输出还要经过 `c_proj` 之后才加回 residual stream。因此它直观、短小，但没有 [[KV Cache]] 中的 prefill / decode 分离。
