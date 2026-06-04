@@ -71,54 +71,9 @@ flowchart TB
 > [!note]- GPT-3 Scale
 > GPT-3 论文里的 175B 模型有 96 层、$d_{\text{model}}=12288$、96 个 attention head、每个 head 维度 128；所有模型使用 2048 token 的 context window。这里的重点不是说 GPT-3 serving 实际会朴素地重算整个窗口，而是说：如果没有 KV Cache 这类增量解码机制，每生成一个 token 都重新 full forward 整个窗口，代价会非常高。[^gpt3]
 
-### GPT-2 vs GPT-3 Attention
+图中用 masked causal attention 概括 attention sub-layer。GPT-3 论文 §2.1 说，模型主干沿用 GPT-2，但 attention pattern 有一个明确例外：GPT-3 使用 alternating dense 和 locally banded sparse attention pattern，类似 Sparse Transformer。[^gpt3] 这个差异主要影响某些层能看见哪些历史位置；它不改变 decoder-only Transformer 的主干结构，也不改变 LayerNorm、MLP、LM head 等模块的角色。
 
-GPT-3 不是只把 GPT-2 原样放大。GPT-3 论文 §2.1 说，模型主干沿用 GPT-2，但有一个明确例外：GPT-3 使用 alternating dense 和 locally banded sparse attention pattern，类似 Sparse Transformer。[^gpt3] 这个差异会影响某些层的 attention mask，但不是理解 Prefill、Decode 和 KV Cache 的必要前提。
-
-| 维度 | GPT-2-style dense causal attention | GPT-3 attention pattern |
-|---|---|---|
-| 可见位置 | 每层都可见当前 token 及全部历史 token | dense 层可见完整前缀，sparse 层只可见部分前缀位置 |
-| attention mask | $j\le i$ | 部分层使用局部稀疏 mask |
-| 主要影响 | attention 项是 $O(T^2d)$ | sparse 层降低有效 attention 计算范围 |
-| 不影响的部分 | 自回归方向、MLP、LayerNorm、LM head | 同左 |
-
-后文为了让推理流程清楚，按 dense causal attention 写公式：位置 $i$ 可以读取 $\{1,\dots,i\}$。这不是声称 GPT-3 没有 sparse attention，而是把它从 Prefill / Decode / KV Cache 主线里拿掉。
-
-### Prefill
-
-Prefill 是处理 prompt 的阶段。给定 prompt tokens $x_{1:T}$，模型一次 forward 整个上下文，并在每一层把 prompt 对应的 $K,V$ 写入 KV Cache：
-
-$$
-\mathcal{C}^{(\ell)}
-=
-\left(K_{1:T}^{(\ell)}, V_{1:T}^{(\ell)}\right)
-$$
-
-Prefill 的设计目标是一次性建立上下文状态：它仍然完整处理 prompt，因此适合并行计算；但它只做一次，而不是每生成一个 token 都重算一次。为什么缓存的是 $K,V$ 而不是 $Q$，见 [[KV Cache#缓存什么]]。
-
-### Decode With KV Cache
-
-Decode 是逐 token 生成阶段。每一步只输入最新 token；在第 $\ell$ 层，模型计算当前 token 的 $q_t,k_t,v_t$，把新的 $k_t,v_t$ 追加到当前层 cache：
-
-$$
-\mathcal{C}^{(\ell)}
-\leftarrow
-\left(K_{1:t}^{(\ell)}, V_{1:t}^{(\ell)}\right)
-$$
-
-当前 token 的 attention 读取 cache 中已有的 $K,V$：
-
-$$
-y_t^{(\ell)}
-=
-\mathrm{softmax}
-\left(
-\frac{q_t^{(\ell)} (K_{1:t}^{(\ell)})^\top}{\sqrt{d_k}}
-\right)
-V_{1:t}^{(\ell)}
-$$
-
-KV Cache 优化的是 attention 里历史 token 的 $K,V$ 重算；当前 token 仍然要在每一层完整走过 LayerNorm、attention output projection、residual、MLP 等步骤。为什么历史 token 的输出不会被新 token 改写，见 [[KV Cache#数学推导]]。
+后文为了让复杂度计算清楚，按 dense causal attention 写公式：位置 $i$ 可以读取 $\{1,\dots,i\}$。这不是声称 GPT-3 没有 sparse attention，而是把 sparse pattern 从 prefill / decode 的常规阶段说明里拿掉。
 
 ## Complexity
 
