@@ -56,7 +56,7 @@ flowchart TB
   end
 
   FLN["$$\text{final LayerNorm}\quad \mathrm{LN}_f(H^{(L)})$$"]:::norm
-  LM["$$\text{LM head / unembedding}\quad z_{T+1} \in \mathbb{R}^{|\mathcal{V}|}$$"]:::head
+  LM["$$\text{LM head}\quad \text{vocabulary projection}\quad z_{T+1} \in \mathbb{R}^{|\mathcal{V}|}$$"]:::head
   SAMPLE["sampling<br/>outside model"]:::outside
 
   X --> WE
@@ -252,7 +252,7 @@ $$
 \tilde{H}^{(L)} = \mathrm{LN}_f(H^{(L)})
 $$
 
-### LM Head / Unembedding
+### LM Head: Vocabulary Projection
 
 推理时只取最后一个位置做 LM head，把 hidden state 投到词表空间：
 
@@ -265,7 +265,7 @@ W_U \in \mathbb{R}^{d_{\text{model}} \times |\mathcal{V}|}, \quad
 z_{T+1} \in \mathbb{R}^{|\mathcal{V}|}
 $$
 
-$\tilde{H}_T^{(L)}$ 是 final LayerNorm 后第 $T$ 行 hidden state，$W_U$ 是 unembedding / LM head 权重，$|\mathcal{V}|$ 是词表大小。$z_{T+1}$ 是 logits 向量，每一维对应一个候选 token 的未归一化分数。
+$\tilde{H}_T^{(L)}$ 是 final LayerNorm 后第 $T$ 行 hidden state，$W_U$ 是 LM head 的输出投影权重，$|\mathcal{V}|$ 是词表大小。$z_{T+1}$ 是 logits 向量，每一维对应一个候选 token 的未归一化分数。^[有些资料会把这个输出投影矩阵叫做 unembedding matrix，意思是把 hidden state 投回 token 词表空间。]
 
 ### Sampling
 
