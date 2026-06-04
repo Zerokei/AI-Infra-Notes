@@ -204,7 +204,7 @@ $$
 
 这就是 residual add 能成立的维度条件：attention 输出和输入 $H$ 的 shape 相同[^4]。
 
-### MLP
+### MLP: Multi-Layer Perceptron
 
 MLP 不混合不同位置，只在每个 token 内部做升维、激活、再降维[^5]：
 
