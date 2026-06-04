@@ -205,10 +205,18 @@ $$
 输出 shape 先是 $\mathbb{R}^{h \times T \times d_k}$，再 concat 回：
 
 $$
-\mathbb{R}^{T \times d_{\text{model}}}
+A \in \mathbb{R}^{T \times d_{\text{model}}}
 $$
 
-这就是 residual add 能成立的维度条件：attention 输出和输入 $H$ 的 shape 相同[^4]。
+concat 之后还会经过 attention output projection：
+
+$$
+O = A W^O,\quad W^O \in \mathbb{R}^{d_{\text{model}} \times d_{\text{model}}}
+$$
+
+$W^O$ 不是另一个 attention，而是 attention sub-layer 里的最后一个线性层；nanoGPT 代码里 `self.c_proj` 对应这个 $W^O$，`self.c_attn` 则一次性生成 $Q,K,V$。这一步把多头拼接后的向量重新混合，并映射回 residual stream 的维度[^4]。
+
+这就是 residual add 能成立的维度条件：attention output projection 的输出 $O$ 和输入 $H$ 的 shape 相同。
 
 ### MLP Sub-layer: Multi-Layer Perceptron
 
