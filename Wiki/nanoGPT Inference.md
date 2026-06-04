@@ -64,7 +64,7 @@ flowchart TB
   HOUT --> FLN --> LM -.-> SAMPLE
 ```
 
-这张图只画一次 forward 的模型结构：embedding 得到 $H^{(0)}$^[这里 $H$ 表示所有位置的 hidden states 组成的矩阵；上标 $(0)$ 表示进入第一个 Transformer layer 之前。]，$L$ 个 pre-LN Transformer layer 沿 residual stream 写入 attention 和 MLP 更新，final LayerNorm 后经 LM head 得到 logits。图里的主要节点顺序对应下面的小节标题。
+这张图只画一次 forward 的模型结构：embedding 得到 $H^{(0)}$^[这里 $H$ 表示所有位置的 hidden states 组成的矩阵；上标 $(0)$ 表示进入第一个 Transformer layer 之前。]，$L$ 个 pre-LN Transformer layer 沿 residual stream 写入 attention 和 MLP 更新，final LayerNorm 后经 LM head 得到 logits。下面只展开主要计算模块，LayerNorm 等辅助节点放在相关小节中说明。
 
 自回归生成发生在模型外部：
 
@@ -75,7 +75,7 @@ $$
 
 含义是：从模型给出的下一个 token 分布中采样，再把结果接到原序列末尾。^[$x_{T+1}$ 是下一个 token id；$p_\theta(\cdot \mid x_{1:T})$ 是参数为 $\theta$ 的模型给出的条件概率分布；$\sim$ 表示采样。]
 
-nanoGPT 的 `generate()` 每步会截断到 `block_size`、调用一次 `forward()`、对最后 logits 采样[^1]。严格说，forward pass 不是模型组件，而是从 $x_{1:T}$ 到 $z_{T+1}$ 的整条模型调用；下面小节按图中节点顺序拆解。
+nanoGPT 的 `generate()` 每步会截断到 `block_size`、调用一次 `forward()`、对最后 logits 采样[^1]。严格说，forward pass 不是模型组件，而是从 $x_{1:T}$ 到 $z_{T+1}$ 的整条模型调用；下面按主干计算模块拆解。
 
 ### Input Representation
 
@@ -113,8 +113,6 @@ H^{(\ell)}
 $$
 
 两个加号就是 residual connection：保留原表示，同时允许子层写入新信息。attention 负责写入历史 token 信息，MLP 负责改写每个 token 自己的特征[^3]。^[$\ell$ 是当前层编号；$\mathrm{LN}_1/\mathrm{LN}_2$ 是两个 LayerNorm；$\mathrm{MHA}$ 是 multi-head attention；$\bar{H}^{(\ell)}$ 是 attention 后、MLP 前的中间状态。]
-
-### LayerNorm 1 / LayerNorm 2
 
 LayerNorm 1 和 LayerNorm 2 的数学操作相同，但位置不同：前者在 attention 前，后者在 MLP 前。
 
@@ -244,17 +242,15 @@ $$
 > ![[Attachments/pics/nanogpt-gelu-curve.png|560]]
 > *图：GELU 相比 ReLU 更平滑，负值区域不是硬截断。*
 
-### Final LayerNorm
+### LM Head: Vocabulary Projection
 
-所有 Transformer layer 结束后，nanoGPT 做 final LayerNorm，把最终 residual stream 再规范化一次：
+进入 LM head 前，nanoGPT 先做 final LayerNorm，把最终 residual stream 再规范化一次：
 
 $$
 \tilde{H}^{(L)} = \mathrm{LN}_f(H^{(L)})
 $$
 
-### LM Head: Vocabulary Projection
-
-推理时只取最后一个位置做 LM head，把 hidden state 投到词表空间：
+然后只取最后一个位置做 LM head，把 hidden state 投到词表空间：
 
 $$
 z_{T+1} = \tilde{H}_T^{(L)} W_U
