@@ -315,9 +315,27 @@ for _ in range(max_new_tokens):
     x = x[-block_size:]
 
     H = W_E[x] + W_P[positions]
+
     for layer in transformer_layers:
-        H = H + layer.mha(layer_norm_1(H))
-        H = H + layer.mlp(layer_norm_2(H))
+        # masked multi-head causal self-attention
+        U = layer_norm_1(H)
+        Q, K, V = split(layer.attn.c_attn(U), parts=3)
+        Q, K, V = reshape_to_heads(Q, K, V)
+
+        S = (Q @ transpose(K)) / sqrt(d_k)
+        S = causal_mask(S)
+        P = softmax(S)
+
+        A = P @ V
+        A = concat_heads(A)
+        O = layer.attn.c_proj(A)
+        H = H + O
+
+        # MLP
+        U = layer_norm_2(H)
+        M = gelu(layer.mlp.c_fc(U))
+        M = layer.mlp.c_proj(M)
+        H = H + M
 
     H = final_layer_norm(H)
     z = lm_head(H[-1])
@@ -330,7 +348,7 @@ for _ in range(max_new_tokens):
     x = concat(x, [x_next])
 ```
 
-关键注意点：这段流程每步都重新计算当前窗口内所有 token 的 $Q,K,V$。因此它直观、短小，但没有 [[KV Cache]] 中的 prefill / decode 分离。
+关键注意点：这段流程每步都重新计算当前窗口内所有 token 的 $Q,K,V$，并且 attention 输出还要经过 `c_proj` 之后才加回 residual stream。因此它直观、短小，但没有 [[KV Cache]] 中的 prefill / decode 分离。
 
 ## Related
 
