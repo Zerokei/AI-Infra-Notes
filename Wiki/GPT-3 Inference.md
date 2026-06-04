@@ -154,6 +154,92 @@ $$
 | 阶段划分 | 一个 `forward()` 循环 | prefill 建 cache，decode 追加 cache |
 | 主要瓶颈 | 直观但重复计算多 | decode 读权重和读 KV Cache，常见 memory bound |
 
+## Complexity
+
+不考虑 batch，设 prompt 长度为 $T$，当前 decode 上下文长度为 $t$，生成 token 数为 $G$；模型有 $L$ 层，hidden size 为 $d=d_{\text{model}}$，attention head 数为 $h$，单 head 维度为 $d_k$，且 $d=h d_k$；MLP 中间维度记作 $d_{\text{ff}}$，词表大小记作 $|V|$。下面只保留主要项，embedding lookup、LayerNorm、activation、softmax 通常是较小项；空间复杂度重点看随请求长度增长的运行时状态，模型权重是固定显存成本。
+
+### Prefill
+
+Prefill 一次处理整个 prompt $x_{1:T}$，目标是生成每层的初始 KV Cache。对每一层，主要时间开销可以分成两类：
+
+$$
+\text{linear + MLP}
+=O(Td^2 + T d d_{\text{ff}})
+$$
+
+$$
+\text{dense causal attention}
+=O(T^2 d)
+$$
+
+所以 $L$ 层 prefill 的主项可以写成：
+
+$$
+O\!\left(
+L(Td^2 + T d d_{\text{ff}} + T^2 d)
+\right)
+$$
+
+Prefill 的持久空间主要是写入 KV Cache：
+
+$$
+K^{(\ell)},V^{(\ell)}\in\mathbb{R}^{h\times T\times d_k}
+$$
+
+$$
+\text{KV cache scalars}
+=O(2LT h d_k)
+=O(2LTd)
+$$
+
+临时空间取决于 attention kernel。朴素实现会显式形成 attention matrix，空间是 $O(hT^2)$；优化实现可以避免完整物化这个矩阵，但 KV Cache 的持久空间仍然按 $O(2LTd)$ 增长。
+
+> [!note]- LM Head in Prefill
+> 如果只需要生成下一个 token，serving 阶段通常只需要最后一个位置的 logits，LM head 是 $O(d|V|)$；如果对所有 prompt 位置都计算 logits，则是 $O(Td|V|)$。
+
+### Decode
+
+Decode 每一步只输入最新 token，但 attention 仍然要读历史 KV Cache。当前上下文长度为 $t$ 时，单层主项是：
+
+$$
+\text{linear + MLP}
+=O(d^2 + d d_{\text{ff}})
+$$
+
+$$
+\text{attention over cached KV}
+=O(td)
+$$
+
+因此单个 decode step 的 $L$ 层主项为：
+
+$$
+O\!\left(
+L(d^2 + d d_{\text{ff}} + td)
+\right)
+$$
+
+如果从长度 $T$ 的 prompt 开始连续生成 $G$ 个 token，decode 总时间主项为：
+
+$$
+O\!\left(
+LG(d^2 + d d_{\text{ff}})
++Ld(GT+G^2)
+\right)
+$$
+
+Decode 的持久空间是在已有 cache 后继续追加：
+
+$$
+\text{KV cache scalars after }G\text{ tokens}
+=O(2L(T+G)d)
+$$
+
+每多生成一个 token，会新增约 $2Ld$ 个 cache scalar。实际系统中，decode 经常不是单纯 FLOPs bound，而是 memory bound：每一步都要读模型权重、读历史 KV Cache、再写入新 token 的 $K,V$。
+
+> [!warning] Dense Baseline
+> 上面的 $O(T^2d)$ 和 $O(td)$ 按 dense causal attention 写。GPT-3 论文提到 alternating dense 与 locally banded sparse attention；sparse pattern 会改变 attention 项的有效历史长度，但不会改变 prefill 建 cache、decode 追加 cache 的阶段划分。
+
 ## Implementation
 
 GPT-3-style 推理伪代码可以写成：
