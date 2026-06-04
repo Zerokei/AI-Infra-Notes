@@ -61,7 +61,8 @@ flowchart TB
 | $H^{(0)}$ | input representation | token embedding 与 position embedding 相加后的初始 residual stream |
 | $H^{(\ell)}$ | Transformer layer 输出 | 第 $\ell$ 层输出的 residual stream；$L$ 表示总层数 |
 | $h_t^{(\ell)}$ | 单个位置 | 第 $\ell$ 层、位置 $t$ 的 hidden vector |
-| $W_Q,W_K,W_V,W_O$ | Q / K / V projection 与 attention output | attention sub-layer 的线性投影矩阵 |
+| $W_Q,W_K,W_V$ | Q / K / V projection | 把 hidden vector 投影成 query、key、value |
+| $W_O$ | attention output projection | 把 attention 得到的向量投影回 residual stream；代码里常叫 `c_proj` 或 `out_proj` |
 | $h,d_k$ | multi-head attention | $h$ 是 head 数，$d_k$ 是单个 head 的 key / value 维度 |
 
 > [!note]- Pre-LN
@@ -163,7 +164,7 @@ y_t^{(\ell)}
 V_{1:t}^{(\ell)}
 $$
 
-但 decode step 不是只跑 attention。KV Cache 优化的是 attention 里历史 token 的 $K,V$ 重算；当前 token 仍然要在每一层完整走过 attention sub-layer 和 MLP sub-layer。按 pre-LN 写，第 $\ell$ 层可以概括为：
+但 decode step 不是只跑 attention。KV Cache 优化的是 attention 里历史 token 的 $K,V$ 重算；当前 token 仍然要在每一层完整走过 attention sub-layer 和 MLP sub-layer。这里的 $W_O$ 是 attention output projection，不是另一个 attention；它把 attention 输出映射回 residual stream。按 pre-LN 写，第 $\ell$ 层可以概括为：
 
 $$
 \tilde{h}_t^{(\ell)}
