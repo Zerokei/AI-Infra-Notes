@@ -80,12 +80,21 @@ Prefill 的设计目标是一次性建立上下文状态。它仍然要处理整
 
 ### Decode With KV Cache
 
-Decode 是逐 token 生成阶段。假设当前要生成第 $t$ 个 token，模型只输入最新 token 的 hidden state，并在每一层计算当前 token 的 $q_t,k_t,v_t$：
+Decode 是逐 token 生成阶段。假设当前要生成第 $t$ 个 token，模型只输入最新 token 的 hidden state，并在每一层先做 $\mathrm{LN}_1$，再计算当前 token 的 $q_t,k_t,v_t$：
 
 $$
-q_t^{(\ell)} = h_t^{(\ell-1)} W_Q^{(\ell)}, \quad
-k_t^{(\ell)} = h_t^{(\ell-1)} W_K^{(\ell)}, \quad
-v_t^{(\ell)} = h_t^{(\ell-1)} W_V^{(\ell)}
+\bar{h}_t^{(\ell-1)}
+=
+\mathrm{LN}_1^{(\ell)}
+\left(
+h_t^{(\ell-1)}
+\right)
+$$
+
+$$
+q_t^{(\ell)} = \bar{h}_t^{(\ell-1)} W_Q^{(\ell)}, \quad
+k_t^{(\ell)} = \bar{h}_t^{(\ell-1)} W_K^{(\ell)}, \quad
+v_t^{(\ell)} = \bar{h}_t^{(\ell-1)} W_V^{(\ell)}
 $$
 
 新的 $k_t,v_t$ 会追加到当前层 cache：
@@ -108,7 +117,28 @@ y_t^{(\ell)}
 V_{1:t}^{(\ell)}
 $$
 
-这就是 KV Cache 的核心：历史 token 的 $K,V$ 不变，新增 token 不会改写历史 token 的输出，所以每步只计算新 token 这一行。更完整的数学证明见 [[KV Cache#数学推导]]。
+但 decode step 不是只跑 attention。KV Cache 优化的是 attention 里历史 token 的 $K,V$ 重算；当前 token 仍然要在每一层完整走过 attention sub-layer 和 MLP sub-layer。按 pre-LN 写，第 $\ell$ 层可以概括为：
+
+$$
+\tilde{h}_t^{(\ell)}
+=
+h_t^{(\ell-1)}
++
+y_t^{(\ell)} W_O^{(\ell)}
+$$
+
+$$
+h_t^{(\ell)}
+=
+\tilde{h}_t^{(\ell)}
++
+\mathrm{MLP}^{(\ell)}
+\left(
+\mathrm{LN}_2^{(\ell)}(\tilde{h}_t^{(\ell)})
+\right)
+$$
+
+这就是 KV Cache 的核心边界：历史 token 的 $K,V$ 不变，新增 token 不会改写历史 token 的输出，所以 attention 里只计算新 token 对历史 cache 的这一行；但当前 token 自己仍然要经过所有层的 MLP。更完整的数学证明见 [[KV Cache#数学推导]]。
 
 > [!warning] Sparse Attention
 > GPT-3 论文提到使用 alternating dense 和 locally banded sparse attention pattern。上面的公式按 dense causal attention 写，是为了说明 KV Cache 的基本机制；sparse attention 会改变某些层读取哪些历史位置，但不改变“缓存历史 $K,V$、新 token 只追加自己的 $K,V$”这个推理原则。[^gpt3]
