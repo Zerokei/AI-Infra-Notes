@@ -6,7 +6,7 @@ updated: 2026-06-04
 
 # GPT-3 Inference
 
-GPT-3 Inference 是以 GPT-3 这种大规模 decoder-only Transformer 为例，说明自回归推理如何从 [[nanoGPT Inference]] 里的教学式 full forward，过渡到生产推理更常见的 prefill / decode 分离与 [[KV Cache]] 复用。GPT-3 论文公开的是模型架构和评估方式，而不是 OpenAI 的 serving 实现；本页讨论的是 GPT-3 架构自然导出的推理机制。[^gpt3]
+GPT-3 Inference 是以 GPT-3 这种大规模 decoder-only Transformer 为例，说明自回归推理如何从 [[nanoGPT Inference]] 里的教学式 full forward，过渡到生产推理更常见的 prefill / decode 两阶段。[[KV Cache]] 在本页只作为 GPT-3 规模下必须引入的推理状态；数学证明和缓存内容放在 [[KV Cache]]。GPT-3 论文公开的是模型架构和评估方式，而不是 OpenAI 的 serving 实现；本页讨论的是 GPT-3 架构自然导出的推理机制。[^gpt3]
 
 ## Mechanism
 
@@ -86,24 +86,7 @@ GPT-3 不是只把 GPT-2 原样放大。GPT-3 论文 §2.1 说，模型主干沿
 
 ### Prefill
 
-Prefill 是处理 prompt 的阶段。给定 prompt tokens $x_{1:T}$，模型一次 forward 整个上下文。第 $\ell$ 层先在所有位置上计算 $Q,K,V$：
-
-$$
-\bar{H}^{(\ell-1)}
-=
-\mathrm{LN}_1^{(\ell)}
-\left(
-H^{(\ell-1)}
-\right)
-$$
-
-$$
-Q_{1:T}^{(\ell)}=\bar{H}^{(\ell-1)}W_Q^{(\ell)},\quad
-K_{1:T}^{(\ell)}=\bar{H}^{(\ell-1)}W_K^{(\ell)},\quad
-V_{1:T}^{(\ell)}=\bar{H}^{(\ell-1)}W_V^{(\ell)}
-$$
-
-然后把 $K,V$ 写入第 $\ell$ 层的 cache：
+Prefill 是处理 prompt 的阶段。给定 prompt tokens $x_{1:T}$，模型一次 forward 整个上下文，并在每一层把 prompt 对应的 $K,V$ 写入 KV Cache：
 
 $$
 \mathcal{C}^{(\ell)}
@@ -111,40 +94,11 @@ $$
 \left(K_{1:T}^{(\ell)}, V_{1:T}^{(\ell)}\right)
 $$
 
-对任意位置 $i$，causal attention 只读取当前位置及其历史位置：
-
-$$
-y_i^{(\ell)}
-=
-\mathrm{softmax}
-\left(
-\frac{q_i^{(\ell)}(K_{1:i}^{(\ell)})^\top}{\sqrt{d_k}}
-\right)
-V_{1:i}^{(\ell)}
-$$
-
-后面仍然接 attention output projection、residual、$\mathrm{LN}_2$ 和 MLP。Prefill 的设计目标是一次性建立上下文状态：它处理整个 prompt，并为后续 decode 准备每一层的 KV Cache；但它只做一次，而不是每生成一个 token 都重算一次。
+Prefill 的设计目标是一次性建立上下文状态：它仍然完整处理 prompt，因此适合并行计算；但它只做一次，而不是每生成一个 token 都重算一次。为什么缓存的是 $K,V$ 而不是 $Q$，见 [[KV Cache#缓存什么]]。
 
 ### Decode With KV Cache
 
-Decode 是逐 token 生成阶段。假设当前要生成第 $t$ 个 token，模型只输入最新 token 的 hidden state，并在每一层先做 $\mathrm{LN}_1$，再计算当前 token 的 $q_t,k_t,v_t$：
-
-$$
-\bar{h}_t^{(\ell-1)}
-=
-\mathrm{LN}_1^{(\ell)}
-\left(
-h_t^{(\ell-1)}
-\right)
-$$
-
-$$
-q_t^{(\ell)} = \bar{h}_t^{(\ell-1)} W_Q^{(\ell)}, \quad
-k_t^{(\ell)} = \bar{h}_t^{(\ell-1)} W_K^{(\ell)}, \quad
-v_t^{(\ell)} = \bar{h}_t^{(\ell-1)} W_V^{(\ell)}
-$$
-
-新的 $k_t,v_t$ 会追加到当前层 cache：
+Decode 是逐 token 生成阶段。每一步只输入最新 token；在第 $\ell$ 层，模型计算当前 token 的 $q_t,k_t,v_t$，把新的 $k_t,v_t$ 追加到当前层 cache：
 
 $$
 \mathcal{C}^{(\ell)}
@@ -152,7 +106,7 @@ $$
 \left(K_{1:t}^{(\ell)}, V_{1:t}^{(\ell)}\right)
 $$
 
-当前 token 的 attention 只需要当前 query 和缓存中的历史 K/V：
+当前 token 的 attention 读取 cache 中已有的 $K,V$：
 
 $$
 y_t^{(\ell)}
@@ -164,59 +118,7 @@ y_t^{(\ell)}
 V_{1:t}^{(\ell)}
 $$
 
-但 decode step 不是只跑 attention。KV Cache 优化的是 attention 里历史 token 的 $K,V$ 重算；当前 token 仍然要在每一层完整走过 attention sub-layer 和 MLP sub-layer。这里的 $W_O$ 是 attention output projection，不是另一个 attention；它把 attention 输出映射回 residual stream。按 pre-LN 写，第 $\ell$ 层可以概括为：
-
-$$
-\tilde{h}_t^{(\ell)}
-=
-h_t^{(\ell-1)}
-+
-y_t^{(\ell)} W_O^{(\ell)}
-$$
-
-$$
-h_t^{(\ell)}
-=
-\tilde{h}_t^{(\ell)}
-+
-\mathrm{MLP}^{(\ell)}
-\left(
-\mathrm{LN}_2^{(\ell)}(\tilde{h}_t^{(\ell)})
-\right)
-$$
-
-这就是 KV Cache 的核心边界：历史 token 的 $K,V$ 不变，新增 token 不会改写历史 token 的输出，所以 attention 里只计算新 token 对历史 cache 的这一行读取；但当前 token 自己仍然要经过所有层的 MLP。更完整的数学证明见 [[KV Cache#数学推导]]。
-
-### KV Cache Layout
-
-不考虑 batch 时，第 $\ell$ 层的 KV Cache 可以直观写成：
-
-$$
-K^{(\ell)}, V^{(\ell)}
-\in
-\mathbb{R}^{h \times T \times d_k}
-$$
-
-其中 $h$ 是 attention head 数，$T$ 是已经缓存的 token 数，$d_k$ 是每个 head 的 key / value 维度。所有层合起来，KV Cache 的元素数量随上下文长度线性增长：
-
-$$
-\#\text{scalars}
-\approx
-2 \times L \times T \times h \times d_k
-$$
-
-这里的 $2$ 来自 Key 和 Value 两份缓存。若每个元素占 $s$ bytes，则显存近似为：
-
-$$
-\text{KV cache bytes}
-\approx
-2 \times L \times T \times h \times d_k \times s
-$$
-
-这个线性增长是生产推理中的核心显存压力：权重是固定成本，KV Cache 会随着 prompt 长度和已生成 token 数增长。
-
-> [!example]- GPT-3 175B KV Cache 粗算
-> 若按 fp16 粗算，$L=96$、$h=96$、$d_k=128$、$s=2$ bytes。单个 token 的 KV Cache 约为 $2 \times 96 \times 96 \times 128 \times 2 \approx 4.7$ MB；2048 token 的单序列 cache 约为 $9.7$ GB。这个量级解释了为什么 GPT-3-style 推理必须严肃处理 KV Cache 显存管理。
+KV Cache 优化的是 attention 里历史 token 的 $K,V$ 重算；当前 token 仍然要在每一层完整走过 LayerNorm、attention output projection、residual、MLP 等步骤。为什么历史 token 的输出不会被新 token 改写，见 [[KV Cache#数学推导]]。
 
 ### Comparison With nanoGPT
 
@@ -230,114 +132,14 @@ $$
 
 ## Complexity
 
-不考虑 batch，设 prompt 长度为 $T$，当前 decode 上下文长度为 $t$，生成 token 数为 $G$；模型有 $L$ 层，hidden size 为 $d=d_{\text{model}}$，attention head 数为 $h$，单 head 维度为 $d_k$，且 $d=h d_k$；MLP 中间维度记作 $d_{\text{ff}}$，词表大小记作 $|V|$。下面只保留主要项，embedding lookup、LayerNorm、activation、softmax 通常是较小项；空间复杂度重点看随请求长度增长的运行时状态，模型权重是固定显存成本。
+本页只保留阶段性判断，避免和 [[KV Cache]] / [[LLM Inference Optimization]] 重复。
 
-### Prefill
+| 阶段 | 输入规模 | 主要工作 | 典型瓶颈 |
+|---|---|---|---|
+| Prefill | 整个 prompt | 一次性建立所有层的上下文表示和初始 KV Cache | 大矩阵乘法多，适合并行，通常更偏 compute-heavy |
+| Decode | 每次 1 个新 token | 追加当前 token 的 $K,V$，读取历史 KV Cache，产生下一个 token logits | 逐 token 串行，频繁读权重和 KV Cache，容易 memory bound |
 
-Prefill 一次处理整个 prompt $x_{1:T}$，目标是生成每层的初始 KV Cache。对每一层，主要时间开销可以分成两类：
-
-$$
-\text{linear + MLP}
-=O(Td^2 + T d d_{\text{ff}})
-$$
-
-$$
-\text{dense causal attention}
-=O(T^2 d)
-$$
-
-所以 $L$ 层 prefill 的主项可以写成：
-
-$$
-O\!\left(
-L(Td^2 + T d d_{\text{ff}} + T^2 d)
-\right)
-$$
-
-Prefill 的持久空间主要是写入 KV Cache：
-
-$$
-K^{(\ell)},V^{(\ell)}\in\mathbb{R}^{h\times T\times d_k}
-$$
-
-$$
-\text{KV cache scalars}
-=O(2LT h d_k)
-=O(2LTd)
-$$
-
-临时空间取决于 attention kernel。朴素实现会显式形成 attention matrix，空间是 $O(hT^2)$；优化实现可以避免完整物化这个矩阵，但 KV Cache 的持久空间仍然按 $O(2LTd)$ 增长。
-
-> [!note]- LM Head in Prefill
-> 如果只需要生成下一个 token，serving 阶段通常只需要最后一个位置的 logits，LM head 是 $O(d|V|)$；如果对所有 prompt 位置都计算 logits，则是 $O(Td|V|)$。
-
-### Decode
-
-Decode 每一步只输入最新 token，但 attention 仍然要读历史 KV Cache。当前上下文长度为 $t$ 时，单层主项是：
-
-$$
-\text{linear + MLP}
-=O(d^2 + d d_{\text{ff}})
-$$
-
-$$
-\text{attention over cached KV}
-=O(td)
-$$
-
-因此单个 decode step 的 $L$ 层主项为：
-
-$$
-O\!\left(
-L(d^2 + d d_{\text{ff}} + td)
-\right)
-$$
-
-如果从长度 $T$ 的 prompt 开始连续生成 $G$ 个 token，decode 总时间主项为：
-
-$$
-O\!\left(
-LG(d^2 + d d_{\text{ff}})
-+Ld(GT+G^2)
-\right)
-$$
-
-Decode 的持久空间是在已有 cache 后继续追加：
-
-$$
-\text{KV cache scalars after }G\text{ tokens}
-=O(2L(T+G)d)
-$$
-
-每多生成一个 token，会新增约 $2Ld$ 个 cache scalar。实际系统中，decode 经常不是单纯 FLOPs bound，而是 memory bound：每一步都要读模型权重、读历史 KV Cache、再写入新 token 的 $K,V$。
-
-## Implementation
-
-GPT-3-style 推理伪代码可以写成：
-
-```python
-# prefill
-H = token_embedding(prompt_tokens) + position_embedding(positions)
-kv_cache = []
-
-for layer in transformer_layers:
-    H, K, V = layer.prefill(H)
-    kv_cache.append((K, V))
-
-# decode
-for _ in range(max_new_tokens):
-    h = token_embedding([x_last]) + position_embedding([position])
-
-    for layer_id, layer in enumerate(transformer_layers):
-        h, k_new, v_new = layer.decode_one(h, kv_cache[layer_id])
-        kv_cache[layer_id].append(k_new, v_new)
-
-    h = final_layer_norm(h)
-    z = lm_head(h)
-    x_last = sample(softmax(z / temperature))
-```
-
-关键区别是：prefill 阶段把 prompt 的 $K,V$ 建好；decode 阶段每层只追加当前 token 的 $K,V$，然后用 cache 中的历史 $K,V$ 做 attention。
+复杂度证明与缓存显存公式放在 [[KV Cache]]；prefill / decode 的系统瓶颈放在 [[LLM Inference Optimization]]。
 
 ## Related
 
