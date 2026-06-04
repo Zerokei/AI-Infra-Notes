@@ -25,12 +25,12 @@ flowchart TB
   classDef sum fill:#ffffff,stroke:#64748b,color:#111827,stroke-width:1.5px;
   classDef outside fill:#ffffff,stroke:#94a3b8,color:#475569,stroke-dasharray:5 5;
 
-  X["$$\begin{array}{c}\text{token ids}\\x_{1:T}\end{array}$$"]:::token
+  X["$$\text{token ids}\quad x_{1:T}$$"]:::token
 
   subgraph EMB["Input representation"]
     direction TB
-    WE["$$\begin{array}{c}\text{token embedding}\\W_E[x_{1:T}]\end{array}$$"]:::embed
-    WP["$$\begin{array}{c}\text{position embedding}\\W_P[1:T]\end{array}$$"]:::pos
+    WE["$$\text{token embedding}\quad W_E[x_{1:T}]$$"]:::embed
+    WP["$$\text{position embedding}\quad W_P[1:T]$$"]:::pos
     ADD0(("$$+$$")):::sum
     H0["$$H^{(0)} \in \mathbb{R}^{T \times d_{\text{model}}}$$"]:::stream
     WE --> ADD0
@@ -40,12 +40,12 @@ flowchart TB
 
   subgraph BLOCK["Transformer block x L (pre-LN)"]
     direction TB
-    HIN["$$\begin{array}{c}\text{residual stream}\\H^{(\ell-1)}\end{array}$$"]:::stream
-    LN1["$$\begin{array}{c}\text{LayerNorm 1}\\\mathrm{LN}_1(H^{(\ell-1)})\end{array}$$"]:::norm
+    HIN["$$\text{residual stream}\quad H^{(\ell-1)}$$"]:::stream
+    LN1["$$\text{LayerNorm 1}\quad \mathrm{LN}_1(H^{(\ell-1)})$$"]:::norm
     ATTN["masked multi-head<br/>causal self-attention"]:::attn
     ADD1(("$$+$$")):::sum
     HB["$$\bar{H}^{(\ell)} \in \mathbb{R}^{T \times d_{\text{model}}}$$"]:::stream
-    LN2["$$\begin{array}{c}\text{LayerNorm 2}\\\mathrm{LN}_2(\bar{H}^{(\ell)})\end{array}$$"]:::norm
+    LN2["$$\text{LayerNorm 2}\quad \mathrm{LN}_2(\bar{H}^{(\ell)})$$"]:::norm
     MLP["MLP / feed-forward<br/>Linear -> GELU -> Linear"]:::mlp
     ADD2(("$$+$$")):::sum
     HOUT["$$H^{(\ell)} \in \mathbb{R}^{T \times d_{\text{model}}}$$"]:::stream
@@ -55,8 +55,8 @@ flowchart TB
     HB -. "skip connection" .-> ADD2
   end
 
-  FLN["$$\begin{array}{c}\text{final LayerNorm}\\\mathrm{LN}_f(H^{(L)})\end{array}$$"]:::norm
-  LM["$$\begin{array}{c}\text{LM head / unembedding}\\z_{T+1} \in \mathbb{R}^{|\mathcal{V}|}\end{array}$$"]:::head
+  FLN["$$\text{final LayerNorm}\quad \mathrm{LN}_f(H^{(L)})$$"]:::norm
+  LM["$$\text{LM head / unembedding}\quad z_{T+1} \in \mathbb{R}^{|\mathcal{V}|}$$"]:::head
   SAMPLE["sampling<br/>outside model"]:::outside
 
   X --> WE
